@@ -1,0 +1,33 @@
+@import './tokens.css';
+@import './reset.css';
+
+.canvas-surface {
+  background-color: var(--surface-canvas);
+  background-image: radial-gradient(
+    circle,
+    var(--surface-dot) 1px,
+    transparent 1px
+  );
+  background-size: 16px 16px;
+  background-position: 0 0;
+}
+
+.glass {
+  background: var(--surface-elevated-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.5px solid var(--border-hairline);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.meta-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}

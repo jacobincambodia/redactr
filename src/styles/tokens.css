@@ -1,0 +1,106 @@
+:root {
+  /* Surfaces */
+  --surface-page: #f5f3ee;
+  --surface-canvas: #ebe8e1;
+  --surface-dot: rgba(0, 0, 0, 0.08);
+  --surface-elevated: #ffffff;
+  --surface-elevated-glass: rgba(255, 255, 255, 0.96);
+
+  /* Ink */
+  --ink-primary: #1a1a1a;
+  --ink-secondary: #666666;
+  --ink-tertiary: #888888;
+  --ink-disabled: #b8b8b8;
+  --ink-inverse: #ffffff;
+
+  /* Borders */
+  --border-hairline: rgba(0, 0, 0, 0.08);
+  --border-emphasis: rgba(0, 0, 0, 0.16);
+
+  /* Accents (canvas only) */
+  --accent-canvas-selection: #2563eb;
+  --accent-canvas-selection-fill: rgba(37, 99, 235, 0.08);
+
+  /* Markup colors (user-pickable, identical in both modes) */
+  --mark-red: #ef4444;
+  --mark-amber: #f59e0b;
+  --mark-green: #10b981;
+  --mark-blue: #3b82f6;
+  --mark-white: #ffffff;
+  --mark-black: #1a1a1a;
+
+  /* Shadows */
+  --shadow-canvas: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-toolbar: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+  --space-10: 64px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-image: 6px;
+}
+
+[data-theme='dark'] {
+  --surface-page: #0d0d0d;
+  --surface-canvas: #0a0a0a;
+  --surface-dot: rgba(255, 255, 255, 0.06);
+  --surface-elevated: #181818;
+  --surface-elevated-glass: rgba(24, 24, 24, 0.96);
+
+  --ink-primary: #ffffff;
+  --ink-secondary: #999999;
+  --ink-tertiary: #666666;
+  --ink-disabled: #444444;
+  --ink-inverse: #1a1a1a;
+
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-emphasis: rgba(255, 255, 255, 0.16);
+
+  --accent-canvas-selection: #3b82f6;
+  --accent-canvas-selection-fill: rgba(59, 130, 246, 0.12);
+
+  --shadow-canvas: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-toolbar: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Match system preference when no explicit theme is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --surface-page: #0d0d0d;
+    --surface-canvas: #0a0a0a;
+    --surface-dot: rgba(255, 255, 255, 0.06);
+    --surface-elevated: #181818;
+    --surface-elevated-glass: rgba(24, 24, 24, 0.96);
+
+    --ink-primary: #ffffff;
+    --ink-secondary: #999999;
+    --ink-tertiary: #666666;
+    --ink-disabled: #444444;
+    --ink-inverse: #1a1a1a;
+
+    --border-hairline: rgba(255, 255, 255, 0.08);
+    --border-emphasis: rgba(255, 255, 255, 0.16);
+
+    --accent-canvas-selection: #3b82f6;
+    --accent-canvas-selection-fill: rgba(59, 130, 246, 0.12);
+
+    --shadow-canvas: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.6);
+    --shadow-toolbar: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+}

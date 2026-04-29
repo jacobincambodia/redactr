@@ -1,0 +1,16 @@
+{
+  "name": "Redactr",
+  "short_name": "Redactr",
+  "description": "Browser-based image redaction and markup tool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ee",
+  "theme_color": "#f5f3ee",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ]
+}
