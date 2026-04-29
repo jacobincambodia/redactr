@@ -52,4 +52,4 @@ class AppState {
   }
 }
 
-export const state = new AppState();
+export const app = new AppState();
