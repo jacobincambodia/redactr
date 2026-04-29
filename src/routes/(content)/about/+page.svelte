@@ -38,4 +38,7 @@
 
   <p class="faq-q">How much does it cost?</p>
   <p class="faq-a">Nothing. There is no paid tier and no plan to add one.</p>
+
+  <p class="faq-q">Who built it?</p>
+  <p class="faq-a">An investigative researcher who needed strong, on-device redaction in the field and couldn't find a tool that ran fully in the browser without uploading the image somewhere first.</p>
 </article>
