@@ -41,3 +41,13 @@ Format suggestion: `- [area] thing — short note`. No strict rules.
 - text annotations get 4 corner handles that scale the font uniformly from the opposite corner
 - cursor reflects intent: crosshair while drawing, grab on selected body, grabbing while moving, nwse-resize / nesw-resize on corner handles
 - size readouts in the settings strip round to integer (was showing 154.94767... after a resize)
+
+### v1.3
+
+- text tool always places new text — clicking on an existing annotation no longer selects it, so you can write labels on top of black boxes and blurs
+- blur edges no longer feather: extracts a padded source region (radius * 3) so the gaussian kernel always has real pixel data to sample
+- new home description: "Strong redaction. No upload. No account. Just your browser."
+- new content pages at /features, /guides, /about with shared header (back-to-editor link) and footer (cross-page links + "Open the editor" CTA)
+- SSR enabled for content pages (overrides root ssr=false), so search engines see fully prerendered HTML
+- per-page <title> and <meta name="description"> via svelte:head; removed the global meta description from app.html so per-page descriptions actually win
+- guides page covers the five most-likely landing tasks: redact a screenshot, blur a face, black out text, "are blurred images really safe?" (the differentiator), and how to redact on a phone

@@ -645,6 +645,13 @@
   });
 </script>
 
+<svelte:head>
+  <title>Redactr — Strong image redaction in your browser</title>
+  <meta name="description" content="Black out, blur, or pixelate parts of an image, then mark it up with arrows and text. Runs entirely in your browser — no upload, no account, no tracking." />
+  <meta property="og:title" content="Redactr — Strong image redaction in your browser" />
+  <meta property="og:description" content="Black out, blur, or pixelate parts of an image, in your browser. No upload." />
+</svelte:head>
+
 <main class="app" ondragover={onDragOver} ondrop={onDrop}>
   {#if !app.image}
     <!-- Empty state -->
@@ -654,7 +661,7 @@
       </div>
       <h1 class="empty-title">Redactr</h1>
       <p class="empty-subtitle">
-        Black box, pixelate, blur. Plus arrows, text, shapes. Stays in your browser.
+        Strong redaction. No upload. No account. Just your browser.
       </p>
       <button class="cta" onclick={() => fileInputEl.click()}>Choose image</button>
       <p class="hint">Or paste · Or drop</p>
@@ -663,11 +670,11 @@
         <p class="empty-formats mono">JPEG · PNG · GIF · WebP</p>
         <p class="empty-promise">No upload, no tracking, no account. Everything happens on your device.</p>
         <nav class="empty-links" aria-label="About this tool">
-          <a href="#about">about</a>
+          <a href="/about">about</a>
           <span aria-hidden="true">·</span>
-          <a href="#features">features</a>
+          <a href="/features">features</a>
           <span aria-hidden="true">·</span>
-          <a href="#guides">guides</a>
+          <a href="/guides">guides</a>
         </nav>
       </footer>
     </div>
