@@ -13,8 +13,8 @@ class AppState {
   color = $state(DEFAULT_COLOR);
   blockSize = $state(30);
   blurRadius = $state(20);
-  strokeWidth = $state(4);
-  fontSize = $state(24);
+  strokeWidth = $state(8);
+  fontSize = $state(48);
   textBold = $state(false);
   textItalic = $state(false);
   textUnderline = $state(false);

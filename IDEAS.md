@@ -11,6 +11,8 @@ Format suggestion: `- [area] thing — short note`. No strict rules.
 - [tools] freeform / lasso blur and pixelate (point-in-polygon trace) — ellipse handles most cases for now
 - [tools] mobile delete-selected button — no keyboard Delete on phones; selection has no UI to remove one annotation right now (Clear nukes everything, Undo only works for the most recent)
 - [tools] propagate last-used setting from selected annotation to defaults when deselected — so changing a selected arrow's color also changes the next-draw default
+- [tools] optional readability outline/shadow toggle for text — removed from defaults in v1.2 because the black halo looked messy, but text on a busy background can be hard to read without it
+- [tools] text bounds use a `length * fontSize * 0.6` approximation; on certain glyph-heavy strings the selection mark and hit-test trail the actual text by a few pixels — switch to canvas.measureText if it ever becomes a real problem
 - [export] JPEG export option (smaller files for very large images)
 - [export] copy rendered image to clipboard (Cmd+C) — keyboard handler is wired but the actual clipboard write isn't implemented yet
 - [a11y] keyboard shortcut help overlay on `?`
@@ -28,3 +30,13 @@ Format suggestion: `- [area] thing — short note`. No strict rules.
 - bold / italic / underline for text annotations, including post-place edits
 - ellipse mode for black box, pixelate, and blur (clipped via canvas path)
 - per-element select / move / resize / edit-after-place with auto-select on draw, dashed selection outline, corner handles for rect-bounded tools, endpoint handles for arrows, Delete/Backspace to remove, Esc to deselect
+
+### v1.2
+
+- live canvas preview for arrow / rect markup / black-box (rect) during drag — no more blue selection rect for those, you see the actual shape as you draw it
+- arrow defaults: stroke 8 (was 4), max 24, head size scaled up
+- text defaults: font 48 (was 24), max 200 (was 72), no readability outline by default (cleaner; user picks contrasting color)
+- text input UI: solid 1.5px border, rounded, larger min-width, more padding, soft shadow
+- text annotations get 4 corner handles that scale the font uniformly from the opposite corner
+- cursor reflects intent: crosshair while drawing, grab on selected body, grabbing while moving, nwse-resize / nesw-resize on corner handles
+- size readouts in the settings strip round to integer (was showing 154.94767... after a resize)

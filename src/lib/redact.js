@@ -113,7 +113,7 @@ export function drawRect(ctx, x, y, w, h, color, strokeWidth) {
  * Draw an arrow from (x1,y1) to (x2,y2). Arrowhead size scales with stroke width.
  */
 export function drawArrow(ctx, x1, y1, x2, y2, color, strokeWidth) {
-  const headLen = Math.max(15, strokeWidth * 4);
+  const headLen = Math.max(22, strokeWidth * 5);
   const angle = Math.atan2(y2 - y1, x2 - x1);
 
   ctx.strokeStyle = color;
@@ -149,18 +149,13 @@ export function drawArrow(ctx, x1, y1, x2, y2, color, strokeWidth) {
  * Draw a text annotation. The text has a contrasting outline so it stays readable
  * over any background.
  */
-export function drawText(ctx, x, y, text, color, fontSize, isDark, opts = {}) {
+export function drawText(ctx, x, y, text, color, fontSize, _isDark, opts = {}) {
   const { bold = false, italic = false, underline = false } = opts;
   const style = italic ? 'italic ' : '';
   const weight = bold ? '700' : '500';
   const sansVar = getComputedStyle(document.documentElement).getPropertyValue('--font-sans') || 'system-ui';
   ctx.font = `${style}${weight} ${fontSize}px ${sansVar}`;
   ctx.textBaseline = 'top';
-
-  ctx.strokeStyle = isDark ? '#ffffff' : '#000000';
-  ctx.lineWidth = Math.max(2, fontSize * 0.08);
-  ctx.lineJoin = 'round';
-  ctx.strokeText(text, x, y);
 
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
@@ -169,16 +164,9 @@ export function drawText(ctx, x, y, text, color, fontSize, isDark, opts = {}) {
     const w = ctx.measureText(text).width;
     const thickness = Math.max(1.5, fontSize * 0.06);
     const yLine = y + fontSize + thickness * 0.5;
-    // Outline for readability against any background
-    ctx.strokeStyle = isDark ? '#ffffff' : '#000000';
-    ctx.lineWidth = thickness + Math.max(2, fontSize * 0.08);
-    ctx.lineCap = 'butt';
-    ctx.beginPath();
-    ctx.moveTo(x, yLine);
-    ctx.lineTo(x + w, yLine);
-    ctx.stroke();
     ctx.strokeStyle = color;
     ctx.lineWidth = thickness;
+    ctx.lineCap = 'butt';
     ctx.beginPath();
     ctx.moveTo(x, yLine);
     ctx.lineTo(x + w, yLine);

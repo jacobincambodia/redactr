@@ -20,6 +20,9 @@
   let selectedId = $state(null);
   // interaction: null | { kind: 'moving', id, offset } | { kind: 'resizing', id, handle, original }
   let interaction = $state(null);
+  // Hover state (for cursor feedback)
+  let hoverHandle = $state(null);
+  let hoverBody = $state(false);
 
   const allTools = [...REDACT_TOOLS, ...MARKUP_TOOLS];
   const selectedAnn = $derived(app.annotations.find((a) => a.id === selectedId) ?? null);
@@ -141,16 +144,47 @@
     };
   });
 
+  // Tools whose in-progress draw is rendered live on the canvas (not as a blue preview rect)
+  const LIVE_PREVIEW_TOOLS = new Set(['arrow', 'rect', 'blackbox']);
+
+  function previewAnnotation() {
+    if (!drawing || !dragStart || !dragCurrent) return null;
+    const t = app.tool;
+    if (!LIVE_PREVIEW_TOOLS.has(t)) return null;
+    if (t === 'arrow') {
+      return {
+        tool: 'arrow',
+        x: dragStart.x, y: dragStart.y,
+        w: dragCurrent.x - dragStart.x, h: dragCurrent.y - dragStart.y,
+        color: app.color,
+        strokeWidth: app.strokeWidth,
+      };
+    }
+    if (t === 'rect') {
+      const r = normalizeRect(dragStart.x, dragStart.y, dragCurrent.x - dragStart.x, dragCurrent.y - dragStart.y);
+      return { tool: 'rect', ...r, color: app.color, strokeWidth: app.strokeWidth };
+    }
+    // blackbox: only live-preview rect shape (ellipse falls back to blue ring)
+    if (t === 'blackbox' && app.redactShape !== 'ellipse') {
+      const r = normalizeRect(dragStart.x, dragStart.y, dragCurrent.x - dragStart.x, dragCurrent.y - dragStart.y);
+      return { tool: 'blackbox', ...r, shape: 'rect' };
+    }
+    return null;
+  }
+
   // Re-render the canvas whenever the image, annotations, or theme change
   $effect(() => {
     if (!app.image || !canvasEl) return;
-    isDark; // dependency for text outline color
+    isDark;
+    drawing; dragStart; dragCurrent; // dependencies for live preview
     const ctx = canvasEl.getContext('2d');
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
     ctx.drawImage(app.image.element, 0, 0);
     for (const ann of app.annotations) {
       drawAnnotation(ctx, ann, app.image.element, isDark);
     }
+    const preview = previewAnnotation();
+    if (preview) drawAnnotation(ctx, preview, app.image.element, isDark);
   });
 
   function showError(msg) {
@@ -255,6 +289,13 @@
   // For rect-bounded tools: 4 corners (TL, TR, BR, BL).
   // For arrow: 2 endpoints (start, end).
   // For text: none (move-only; size via slider).
+  function textBoundsFor(a) {
+    const charW = (a.fontSize || 24) * 0.6;
+    const w = (a.text || '').length * charW;
+    const h = (a.fontSize || 24) * 1.2;
+    return { w, h };
+  }
+
   function handlesFor(a) {
     if (!a) return [];
     if (a.tool === 'arrow') {
@@ -263,7 +304,15 @@
         { name: 'end', x: a.x + a.w, y: a.y + a.h },
       ];
     }
-    if (a.tool === 'text') return [];
+    if (a.tool === 'text') {
+      const { w, h } = textBoundsFor(a);
+      return [
+        { name: 'tl', x: a.x, y: a.y },
+        { name: 'tr', x: a.x + w, y: a.y },
+        { name: 'br', x: a.x + w, y: a.y + h },
+        { name: 'bl', x: a.x, y: a.y + h },
+      ];
+    }
     const x1 = a.x, y1 = a.y, x2 = a.x + a.w, y2 = a.y + a.h;
     return [
       { name: 'tl', x: x1, y: y1 },
@@ -297,6 +346,26 @@
       } else {
         patch = { w: pos.x - original.x, h: pos.y - original.y };
       }
+    } else if (ann.tool === 'text') {
+      // Uniform-scale text from the opposite corner
+      const { w: origW, h: origH } = textBoundsFor(original);
+      let anchorX, anchorY;
+      if (handle === 'tl') { anchorX = original.x + origW; anchorY = original.y + origH; }
+      else if (handle === 'tr') { anchorX = original.x; anchorY = original.y + origH; }
+      else if (handle === 'br') { anchorX = original.x; anchorY = original.y; }
+      else { anchorX = original.x + origW; anchorY = original.y; } // bl
+      const newH = Math.abs(pos.y - anchorY);
+      if (newH < 4) return;
+      const scale = newH / origH;
+      const newFontSize = Math.max(8, Math.min(400, original.fontSize * scale));
+      const newWForBounds = (original.text || '').length * newFontSize * 0.6;
+      const newHForBounds = newFontSize * 1.2;
+      let newX, newY;
+      if (handle === 'tl') { newX = anchorX - newWForBounds; newY = anchorY - newHForBounds; }
+      else if (handle === 'tr') { newX = anchorX; newY = anchorY - newHForBounds; }
+      else if (handle === 'br') { newX = anchorX; newY = anchorY; }
+      else { newX = anchorX - newWForBounds; newY = anchorY; }
+      patch = { x: newX, y: newY, fontSize: newFontSize };
     } else {
       // Rect-bounded: use opposite corner as anchor; allow flipping
       const anchorX = handle.includes('l') ? original.x + original.w : original.x;
@@ -309,6 +378,34 @@
     }
     app.updateAnnotation(ann.id, patch);
   }
+
+  function updateHover(pos) {
+    if (interaction || drawing || !selectedAnn) {
+      hoverHandle = null;
+      hoverBody = false;
+      return;
+    }
+    hoverHandle = hitHandle(pos, selectedAnn);
+    hoverBody = !hoverHandle && hitsAnnotation(selectedAnn, pos);
+  }
+
+  function resizeCursorFor(handle) {
+    if (handle === 'tl' || handle === 'br') return 'nwse-resize';
+    if (handle === 'tr' || handle === 'bl') return 'nesw-resize';
+    if (handle === 'start' || handle === 'end') return 'crosshair';
+    return 'default';
+  }
+
+  const canvasCursor = $derived.by(() => {
+    if (interaction?.kind === 'moving') return 'grabbing';
+    if (interaction?.kind === 'resizing') return resizeCursorFor(interaction.handle);
+    if (drawing) return 'crosshair';
+    if (textPlacement) return 'text';
+    if (hoverHandle) return resizeCursorFor(hoverHandle);
+    if (hoverBody) return 'grab';
+    if (app.tool === 'text') return 'text';
+    return 'crosshair';
+  });
 
   function onPointerDown(e) {
     if (!app.image) return;
@@ -355,7 +452,10 @@
       dragCurrent = pos;
       return;
     }
-    if (!interaction) return;
+    if (!interaction) {
+      updateHover(pos);
+      return;
+    }
     if (interaction.kind === 'moving') {
       const a = app.annotations.find((x) => x.id === interaction.id);
       if (a) {
@@ -418,7 +518,7 @@
     if (!textPlacement) return;
     const t = textPlacement.value.trim();
     if (t) {
-      app.addAnnotation({
+      const id = app.addAnnotation({
         tool: 'text',
         x: textPlacement.x,
         y: textPlacement.y,
@@ -431,6 +531,7 @@
         italic: app.textItalic,
         underline: app.textUnderline,
       });
+      selectedId = id;
     }
     textPlacement = null;
   }
@@ -465,6 +566,8 @@
   // Selection rectangle preview, in display coordinates relative to .canvas-frame
   const selectionBox = $derived.by(() => {
     if (!drawing || !dragStart || !dragCurrent || !canvasEl) return null;
+    // Skip blue preview when the canvas already shows a live render of the in-progress tool
+    if (previewAnnotation()) return null;
     const rect = canvasEl.getBoundingClientRect();
     const parent = canvasEl.parentElement?.getBoundingClientRect();
     if (!parent) return null;
@@ -632,9 +735,9 @@
             onpointermove={onPointerMove}
             onpointerup={onPointerUp}
             onpointercancel={onPointerUp}
+            onpointerleave={() => { hoverHandle = null; hoverBody = false; }}
             class="canvas"
-            class:cursor-cross={app.image && app.tool !== 'text'}
-            class:cursor-text={app.image && app.tool === 'text'}
+            style:cursor={canvasCursor}
             role="img"
             aria-label="Image being redacted: {app.image.name}"
           ></canvas>
@@ -653,14 +756,12 @@
               class:ellipse={selectionOverlay.ellipse}
               style="left:{selectionOverlay.x}px; top:{selectionOverlay.y}px; width:{selectionOverlay.w}px; height:{selectionOverlay.h}px;"
             ></div>
-            {#if selectedAnn?.tool !== 'text'}
-              {#each [['tl', 0, 0], ['tr', 1, 0], ['br', 1, 1], ['bl', 0, 1]] as [name, hx, hy] (name)}
-                <div
-                  class="resize-handle"
-                  style="left:{selectionOverlay.x + selectionOverlay.w * hx}px; top:{selectionOverlay.y + selectionOverlay.h * hy}px;"
-                ></div>
-              {/each}
-            {/if}
+            {#each [['tl', 0, 0], ['tr', 1, 0], ['br', 1, 1], ['bl', 0, 1]] as [name, hx, hy] (name)}
+              <div
+                class="resize-handle"
+                style="left:{selectionOverlay.x + selectionOverlay.w * hx}px; top:{selectionOverlay.y + selectionOverlay.h * hy}px;"
+              ></div>
+            {/each}
           {:else if selectionOverlay && selectionOverlay.kind === 'arrow'}
             <div class="resize-handle" style="left:{selectionOverlay.start.x}px; top:{selectionOverlay.start.y}px;"></div>
             <div class="resize-handle" style="left:{selectionOverlay.end.x}px; top:{selectionOverlay.end.y}px;"></div>
@@ -780,7 +881,7 @@
                 oninput={(e) => setSettingValue(parseInt(e.currentTarget.value))}
                 aria-label="{activeTool.metaLabel} {getSettingValue()} {activeTool.settingUnit}"
               />
-              <span class="strip-value mono">{getSettingValue()} {activeTool.settingUnit}</span>
+              <span class="strip-value mono">{Math.round(getSettingValue())} {activeTool.settingUnit}</span>
             {/if}
           </div>
         {/if}
@@ -1153,14 +1254,18 @@
   .text-input {
     position: absolute;
     background: transparent;
-    border: 1px dashed var(--accent-canvas-selection);
-    padding: 0 4px;
+    border: 1.5px solid var(--accent-canvas-selection);
+    border-radius: 6px;
+    padding: 4px 10px;
     font-family: var(--font-sans);
     font-weight: 500;
-    line-height: 1;
+    line-height: 1.2;
     outline: none;
-    min-width: 80px;
+    min-width: 180px;
+    caret-color: var(--accent-canvas-selection);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
   }
+  .text-input::placeholder { color: var(--ink-tertiary); font-weight: 400; }
   .text-input.bold { font-weight: 700; }
   .text-input.italic { font-style: italic; }
   .text-input.underline { text-decoration: underline; text-underline-offset: 3px; }
