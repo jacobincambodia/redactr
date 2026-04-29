@@ -15,6 +15,10 @@ class AppState {
   blurRadius = $state(20);
   strokeWidth = $state(4);
   fontSize = $state(24);
+  textBold = $state(false);
+  textItalic = $state(false);
+  textUnderline = $state(false);
+  redactShape = $state('rect'); // 'rect' | 'ellipse', applies to blackbox/pixelate/blur
 
   // Annotations on the active image
   annotations = $state([]);
@@ -29,7 +33,17 @@ class AppState {
   }
 
   addAnnotation(ann) {
-    this.annotations = [...this.annotations, { ...ann, id: crypto.randomUUID() }];
+    const id = crypto.randomUUID();
+    this.annotations = [...this.annotations, { ...ann, id }];
+    return id;
+  }
+
+  updateAnnotation(id, patch) {
+    this.annotations = this.annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  }
+
+  deleteAnnotation(id) {
+    this.annotations = this.annotations.filter((a) => a.id !== id);
   }
 
   undoLast() {

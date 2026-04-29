@@ -2,7 +2,7 @@
   /* Surfaces */
   --surface-page: #f5f3ee;
   --surface-canvas: #ebe8e1;
-  --surface-dot: rgba(0, 0, 0, 0.08);
+  --surface-dot: rgba(0, 0, 0, 0.11);
   --surface-elevated: #ffffff;
   --surface-elevated-glass: rgba(255, 255, 255, 0.96);
 
@@ -59,7 +59,7 @@
 [data-theme='dark'] {
   --surface-page: #0d0d0d;
   --surface-canvas: #0a0a0a;
-  --surface-dot: rgba(255, 255, 255, 0.06);
+  --surface-dot: rgba(255, 255, 255, 0.09);
   --surface-elevated: #181818;
   --surface-elevated-glass: rgba(24, 24, 24, 0.96);
 
@@ -84,7 +84,7 @@
   :root:not([data-theme='light']) {
     --surface-page: #0d0d0d;
     --surface-canvas: #0a0a0a;
-    --surface-dot: rgba(255, 255, 255, 0.06);
+    --surface-dot: rgba(255, 255, 255, 0.09);
     --surface-elevated: #181818;
     --surface-elevated-glass: rgba(24, 24, 24, 0.96);
 

@@ -18,11 +18,25 @@
 //   }
 
 /**
- * Apply a black box redaction. Original pixels under the rect are destroyed.
+ * Apply a black box redaction. Original pixels under the shape are destroyed.
  */
-export function blackBox(ctx, x, y, w, h) {
+export function blackBox(ctx, x, y, w, h, shape = 'rect') {
   ctx.fillStyle = '#000';
-  ctx.fillRect(x, y, w, h);
+  if (shape === 'ellipse') {
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w) / 2, Math.abs(h) / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
+// Internal: clip context to the annotation shape so the operation is masked.
+function clipToShape(ctx, x, y, w, h, shape) {
+  if (shape !== 'ellipse') return;
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w) / 2, Math.abs(h) / 2, 0, 0, Math.PI * 2);
+  ctx.clip();
 }
 
 /**
@@ -34,7 +48,7 @@ export function blackBox(ctx, x, y, w, h) {
  * @param {number} x, y, w, h — the region to pixelate, in source coordinates
  * @param {number} blockSize — pixel block size, typically 5–80
  */
-export function pixelate(ctx, originalImage, x, y, w, h, blockSize) {
+export function pixelate(ctx, originalImage, x, y, w, h, blockSize, shape = 'rect') {
   if (w < 2 || h < 2) return;
 
   const off = document.createElement('canvas');
@@ -51,16 +65,19 @@ export function pixelate(ctx, originalImage, x, y, w, h, blockSize) {
   smallCtx.imageSmoothingEnabled = false;
   smallCtx.drawImage(off, 0, 0, sw, sh);
 
+  ctx.save();
+  clipToShape(ctx, x, y, w, h, shape);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(small, 0, 0, sw, sh, x, y, w, h);
-  ctx.imageSmoothingEnabled = true; // restore for any subsequent draws
+  ctx.imageSmoothingEnabled = true;
+  ctx.restore();
 }
 
 /**
  * Blur a region. Applied twice for irreversibility — single-pass gaussian blur has
  * been shown reversible in some adversarial scenarios; double-pass is dramatically harder.
  */
-export function blur(ctx, originalImage, x, y, w, h, radius) {
+export function blur(ctx, originalImage, x, y, w, h, radius, shape = 'rect') {
   if (w < 2 || h < 2) return;
 
   const off1 = document.createElement('canvas');
@@ -77,7 +94,10 @@ export function blur(ctx, originalImage, x, y, w, h, radius) {
   off2Ctx.filter = `blur(${radius}px)`;
   off2Ctx.drawImage(off1, 0, 0);
 
+  ctx.save();
+  clipToShape(ctx, x, y, w, h, shape);
   ctx.drawImage(off2, x, y);
+  ctx.restore();
 }
 
 /**
@@ -129,11 +149,14 @@ export function drawArrow(ctx, x1, y1, x2, y2, color, strokeWidth) {
  * Draw a text annotation. The text has a contrasting outline so it stays readable
  * over any background.
  */
-export function drawText(ctx, x, y, text, color, fontSize, isDark) {
-  ctx.font = `500 ${fontSize}px ${getComputedStyle(document.documentElement).getPropertyValue('--font-sans') || 'system-ui'}`;
+export function drawText(ctx, x, y, text, color, fontSize, isDark, opts = {}) {
+  const { bold = false, italic = false, underline = false } = opts;
+  const style = italic ? 'italic ' : '';
+  const weight = bold ? '700' : '500';
+  const sansVar = getComputedStyle(document.documentElement).getPropertyValue('--font-sans') || 'system-ui';
+  ctx.font = `${style}${weight} ${fontSize}px ${sansVar}`;
   ctx.textBaseline = 'top';
 
-  // Outline for readability
   ctx.strokeStyle = isDark ? '#ffffff' : '#000000';
   ctx.lineWidth = Math.max(2, fontSize * 0.08);
   ctx.lineJoin = 'round';
@@ -141,6 +164,26 @@ export function drawText(ctx, x, y, text, color, fontSize, isDark) {
 
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+
+  if (underline) {
+    const w = ctx.measureText(text).width;
+    const thickness = Math.max(1.5, fontSize * 0.06);
+    const yLine = y + fontSize + thickness * 0.5;
+    // Outline for readability against any background
+    ctx.strokeStyle = isDark ? '#ffffff' : '#000000';
+    ctx.lineWidth = thickness + Math.max(2, fontSize * 0.08);
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(x, yLine);
+    ctx.lineTo(x + w, yLine);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    ctx.beginPath();
+    ctx.moveTo(x, yLine);
+    ctx.lineTo(x + w, yLine);
+    ctx.stroke();
+  }
 }
 
 /**
@@ -150,13 +193,13 @@ export function drawText(ctx, x, y, text, color, fontSize, isDark) {
 export function drawAnnotation(ctx, ann, originalImage, isDarkTheme = false) {
   switch (ann.tool) {
     case 'blackbox':
-      blackBox(ctx, ann.x, ann.y, ann.w, ann.h);
+      blackBox(ctx, ann.x, ann.y, ann.w, ann.h, ann.shape);
       break;
     case 'pixelate':
-      pixelate(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.blockSize);
+      pixelate(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.blockSize, ann.shape);
       break;
     case 'blur':
-      blur(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.radius);
+      blur(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.radius, ann.shape);
       break;
     case 'rect':
       drawRect(ctx, ann.x, ann.y, ann.w, ann.h, ann.color, ann.strokeWidth);
@@ -165,7 +208,9 @@ export function drawAnnotation(ctx, ann, originalImage, isDarkTheme = false) {
       drawArrow(ctx, ann.x, ann.y, ann.x + ann.w, ann.y + ann.h, ann.color, ann.strokeWidth);
       break;
     case 'text':
-      drawText(ctx, ann.x, ann.y, ann.text, ann.color, ann.fontSize, isDarkTheme);
+      drawText(ctx, ann.x, ann.y, ann.text, ann.color, ann.fontSize, isDarkTheme, {
+        bold: ann.bold, italic: ann.italic, underline: ann.underline,
+      });
       break;
   }
 }

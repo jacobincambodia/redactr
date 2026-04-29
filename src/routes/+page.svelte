@@ -16,12 +16,33 @@
   let confirmingClear = $state(false);
   let isDark = $state(false);
 
-  const allTools = [...REDACT_TOOLS, ...MARKUP_TOOLS];
-  const activeTool = $derived(allTools.find((t) => t.id === app.tool));
+  // Selection / direct manipulation
+  let selectedId = $state(null);
+  // interaction: null | { kind: 'moving', id, offset } | { kind: 'resizing', id, handle, original }
+  let interaction = $state(null);
 
+  const allTools = [...REDACT_TOOLS, ...MARKUP_TOOLS];
+  const selectedAnn = $derived(app.annotations.find((a) => a.id === selectedId) ?? null);
+  // Settings strip mirrors the selected annotation when one is selected
+  const displayedToolId = $derived(selectedAnn?.tool ?? app.tool);
+  const activeTool = $derived(allTools.find((t) => t.id === displayedToolId));
+  const isRedactActive = $derived(REDACT_TOOLS.some((t) => t.id === displayedToolId));
+
+  // Map tool's settingKey to the annotation field name (which differs in one case)
+  function annFieldFor(settingKey) {
+    return settingKey === 'radius' ? 'radius'
+      : settingKey === 'blockSize' ? 'blockSize'
+      : settingKey === 'strokeWidth' ? 'strokeWidth'
+      : settingKey === 'fontSize' ? 'fontSize'
+      : null;
+  }
   function getSettingValue() {
     if (!activeTool?.settingKey) return null;
     const k = activeTool.settingKey;
+    if (selectedAnn) {
+      const f = annFieldFor(k);
+      return f ? selectedAnn[f] : null;
+    }
     if (k === 'blockSize') return app.blockSize;
     if (k === 'radius') return app.blurRadius;
     if (k === 'strokeWidth') return app.strokeWidth;
@@ -30,10 +51,32 @@
   }
   function setSettingValue(v) {
     const k = activeTool.settingKey;
+    if (selectedAnn) {
+      const f = annFieldFor(k);
+      if (f) app.updateAnnotation(selectedAnn.id, { [f]: v });
+      return;
+    }
     if (k === 'blockSize') app.blockSize = v;
     else if (k === 'radius') app.blurRadius = v;
     else if (k === 'strokeWidth') app.strokeWidth = v;
     else if (k === 'fontSize') app.fontSize = v;
+  }
+
+  // Color / shape / text-style getters and setters that route to selected ann or defaults
+  function getActiveColor() { return selectedAnn?.color ?? app.color; }
+  function setActiveColor(v) {
+    if (selectedAnn) app.updateAnnotation(selectedAnn.id, { color: v });
+    else app.color = v;
+  }
+  function getActiveShape() { return selectedAnn?.shape ?? app.redactShape; }
+  function setActiveShape(v) {
+    if (selectedAnn) app.updateAnnotation(selectedAnn.id, { shape: v });
+    else app.redactShape = v;
+  }
+  function getActiveTextFlag(flag) { return selectedAnn?.[flag] ?? app[`text${flag[0].toUpperCase()}${flag.slice(1)}`]; }
+  function setActiveTextFlag(flag, v) {
+    if (selectedAnn) app.updateAnnotation(selectedAnn.id, { [flag]: v });
+    else app[`text${flag[0].toUpperCase()}${flag.slice(1)}`] = v;
   }
 
   function evalDark() {
@@ -68,13 +111,24 @@
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        if (app.annotations.length) app.undoLast();
+        if (app.annotations.length) {
+          // Undo: clear selection if it points at the about-to-be-removed annotation
+          const last = app.annotations[app.annotations.length - 1];
+          if (selectedId === last?.id) selectedId = null;
+          app.undoLast();
+        }
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault();
+        app.deleteAnnotation(selectedId);
+        selectedId = null;
       } else if (e.key === 'Escape') {
         if (drawing) {
           drawing = false;
           dragStart = null;
           dragCurrent = null;
         }
+        if (interaction) interaction = null;
+        if (selectedId) selectedId = null;
         confirmingClear = false;
       }
     };
@@ -149,63 +203,215 @@
     if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
   }
 
+  // Hit-test helpers (all in image-pixel coords)
+  function pointToSegment(p, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+  }
+
+  function hitsAnnotation(a, pos, slop = 0) {
+    if (a.tool === 'arrow') {
+      const dist = pointToSegment(pos, { x: a.x, y: a.y }, { x: a.x + a.w, y: a.y + a.h });
+      return dist <= Math.max((a.strokeWidth || 4) + 8, 14) + slop;
+    }
+    if (a.tool === 'text') {
+      // Approximate bounds from font metrics
+      const charW = (a.fontSize || 24) * 0.6;
+      const w = (a.text || '').length * charW;
+      const h = (a.fontSize || 24) * 1.2;
+      return pos.x >= a.x - slop && pos.x <= a.x + w + slop && pos.y >= a.y - slop && pos.y <= a.y + h + slop;
+    }
+    const x = Math.min(a.x, a.x + a.w) - slop;
+    const y = Math.min(a.y, a.y + a.h) - slop;
+    const w = Math.abs(a.w) + 2 * slop;
+    const h = Math.abs(a.h) + 2 * slop;
+    if (a.shape === 'ellipse') {
+      const cx = a.x + a.w / 2;
+      const cy = a.y + a.h / 2;
+      const rx = Math.abs(a.w) / 2 + slop;
+      const ry = Math.abs(a.h) / 2 + slop;
+      if (rx === 0 || ry === 0) return false;
+      const ndx = (pos.x - cx) / rx;
+      const ndy = (pos.y - cy) / ry;
+      return ndx * ndx + ndy * ndy <= 1;
+    }
+    return pos.x >= x && pos.x <= x + w && pos.y >= y && pos.y <= y + h;
+  }
+
+  function hitTest(pos) {
+    // Top-most annotation wins
+    for (let i = app.annotations.length - 1; i >= 0; i--) {
+      if (hitsAnnotation(app.annotations[i], pos)) return app.annotations[i];
+    }
+    return null;
+  }
+
+  // Handle positions for the selected annotation (in image coords).
+  // For rect-bounded tools: 4 corners (TL, TR, BR, BL).
+  // For arrow: 2 endpoints (start, end).
+  // For text: none (move-only; size via slider).
+  function handlesFor(a) {
+    if (!a) return [];
+    if (a.tool === 'arrow') {
+      return [
+        { name: 'start', x: a.x, y: a.y },
+        { name: 'end', x: a.x + a.w, y: a.y + a.h },
+      ];
+    }
+    if (a.tool === 'text') return [];
+    const x1 = a.x, y1 = a.y, x2 = a.x + a.w, y2 = a.y + a.h;
+    return [
+      { name: 'tl', x: x1, y: y1 },
+      { name: 'tr', x: x2, y: y1 },
+      { name: 'br', x: x2, y: y2 },
+      { name: 'bl', x: x1, y: y2 },
+    ];
+  }
+
+  // Hit-test against the selected annotation's handles. Threshold is in image coords.
+  function hitHandle(pos, a) {
+    if (!a || !canvasEl) return null;
+    const rect = canvasEl.getBoundingClientRect();
+    // ~12px display radius → convert to image coords
+    const slop = 12 * (canvasEl.width / rect.width);
+    const handles = handlesFor(a);
+    for (const h of handles) {
+      if (Math.hypot(pos.x - h.x, pos.y - h.y) <= slop) return h.name;
+    }
+    return null;
+  }
+
+  function applyResize(ann, handle, original, pos) {
+    let patch;
+    if (ann.tool === 'arrow') {
+      // Endpoints; w/h are deltas
+      if (handle === 'start') {
+        const newEndX = original.x + original.w;
+        const newEndY = original.y + original.h;
+        patch = { x: pos.x, y: pos.y, w: newEndX - pos.x, h: newEndY - pos.y };
+      } else {
+        patch = { w: pos.x - original.x, h: pos.y - original.y };
+      }
+    } else {
+      // Rect-bounded: use opposite corner as anchor; allow flipping
+      const anchorX = handle.includes('l') ? original.x + original.w : original.x;
+      const anchorY = handle.includes('t') ? original.y + original.h : original.y;
+      const x = Math.min(anchorX, pos.x);
+      const y = Math.min(anchorY, pos.y);
+      const w = Math.abs(pos.x - anchorX);
+      const h = Math.abs(pos.y - anchorY);
+      patch = { x, y, w, h };
+    }
+    app.updateAnnotation(ann.id, patch);
+  }
+
   function onPointerDown(e) {
     if (!app.image) return;
     e.target.setPointerCapture(e.pointerId);
     const pos = getCanvasPos(e, canvasEl);
 
+    // 1. Resize handle on currently-selected annotation
+    if (selectedAnn) {
+      const h = hitHandle(pos, selectedAnn);
+      if (h) {
+        interaction = { kind: 'resizing', id: selectedAnn.id, handle: h, original: { ...selectedAnn } };
+        return;
+      }
+      // Click on body of selected → start move (don't reselect)
+      if (hitsAnnotation(selectedAnn, pos)) {
+        interaction = { kind: 'moving', id: selectedAnn.id, offset: { x: pos.x - selectedAnn.x, y: pos.y - selectedAnn.y } };
+        return;
+      }
+    }
+
+    // 2. Click on a different existing annotation → select it (and prepare to move on drag)
+    const hit = hitTest(pos);
+    if (hit) {
+      selectedId = hit.id;
+      interaction = { kind: 'moving', id: hit.id, offset: { x: pos.x - hit.x, y: pos.y - hit.y } };
+      return;
+    }
+
+    // 3. Empty space: deselect, then handle text tool or start drawing
+    selectedId = null;
     if (app.tool === 'text') {
       textPlacement = { x: pos.x, y: pos.y, value: '' };
       setTimeout(() => textInputEl?.focus(), 0);
       return;
     }
-
     drawing = true;
     dragStart = pos;
     dragCurrent = pos;
   }
-  function onPointerMove(e) {
-    if (!drawing) return;
-    dragCurrent = getCanvasPos(e, canvasEl);
-  }
-  function onPointerUp(e) {
-    if (!drawing) return;
-    drawing = false;
-    const end = getCanvasPos(e, canvasEl);
-    const rawW = end.x - dragStart.x;
-    const rawH = end.y - dragStart.y;
 
-    if (Math.abs(rawW) < 4 && Math.abs(rawH) < 4) {
+  function onPointerMove(e) {
+    const pos = getCanvasPos(e, canvasEl);
+    if (drawing) {
+      dragCurrent = pos;
+      return;
+    }
+    if (!interaction) return;
+    if (interaction.kind === 'moving') {
+      const a = app.annotations.find((x) => x.id === interaction.id);
+      if (a) {
+        app.updateAnnotation(a.id, {
+          x: pos.x - interaction.offset.x,
+          y: pos.y - interaction.offset.y,
+        });
+      }
+    } else if (interaction.kind === 'resizing') {
+      const a = app.annotations.find((x) => x.id === interaction.id);
+      if (a) applyResize(a, interaction.handle, interaction.original, pos);
+    }
+  }
+
+  function onPointerUp(e) {
+    if (drawing) {
+      drawing = false;
+      const end = getCanvasPos(e, canvasEl);
+      const rawW = end.x - dragStart.x;
+      const rawH = end.y - dragStart.y;
+
+      if (Math.abs(rawW) < 4 && Math.abs(rawH) < 4) {
+        dragStart = null;
+        dragCurrent = null;
+        return;
+      }
+
+      let ann = null;
+      if (app.tool === 'arrow') {
+        ann = {
+          tool: 'arrow',
+          x: dragStart.x,
+          y: dragStart.y,
+          w: rawW,
+          h: rawH,
+          color: app.color,
+          strokeWidth: app.strokeWidth,
+        };
+      } else {
+        const r = normalizeRect(dragStart.x, dragStart.y, rawW, rawH);
+        const base = { tool: app.tool, ...r };
+        if (app.tool === 'pixelate') ann = { ...base, blockSize: app.blockSize, shape: app.redactShape };
+        else if (app.tool === 'blur') ann = { ...base, radius: app.blurRadius, shape: app.redactShape };
+        else if (app.tool === 'blackbox') ann = { ...base, shape: app.redactShape };
+        else if (app.tool === 'rect') ann = { ...base, color: app.color, strokeWidth: app.strokeWidth };
+      }
+
+      if (ann) {
+        const id = app.addAnnotation(ann);
+        selectedId = id;
+      }
       dragStart = null;
       dragCurrent = null;
       return;
     }
-
-    let ann = null;
-    if (app.tool === 'arrow') {
-      // Arrows use raw direction, not a normalized rect
-      ann = {
-        tool: 'arrow',
-        x: dragStart.x,
-        y: dragStart.y,
-        w: rawW,
-        h: rawH,
-        color: app.color,
-        strokeWidth: app.strokeWidth,
-      };
-    } else {
-      const r = normalizeRect(dragStart.x, dragStart.y, rawW, rawH);
-      const base = { tool: app.tool, ...r };
-      if (app.tool === 'pixelate') ann = { ...base, blockSize: app.blockSize };
-      else if (app.tool === 'blur') ann = { ...base, radius: app.blurRadius };
-      else if (app.tool === 'blackbox') ann = base;
-      else if (app.tool === 'rect')
-        ann = { ...base, color: app.color, strokeWidth: app.strokeWidth };
-    }
-
-    if (ann) app.addAnnotation(ann);
-    dragStart = null;
-    dragCurrent = null;
+    interaction = null;
   }
 
   function commitText() {
@@ -221,6 +427,9 @@
         text: t,
         color: app.color,
         fontSize: app.fontSize,
+        bold: app.textBold,
+        italic: app.textItalic,
+        underline: app.textUnderline,
       });
     }
     textPlacement = null;
@@ -273,6 +482,46 @@
     };
   });
 
+  // Convert image-pixel coords to overlay (canvas-frame relative) coords
+  function imgToOverlay(x, y) {
+    if (!canvasEl) return null;
+    const rect = canvasEl.getBoundingClientRect();
+    const parent = canvasEl.parentElement?.getBoundingClientRect();
+    if (!parent) return null;
+    const sx = rect.width / canvasEl.width;
+    const sy = rect.height / canvasEl.height;
+    return { x: x * sx + (rect.left - parent.left), y: y * sy + (rect.top - parent.top), sx, sy };
+  }
+
+  // Selection overlay rect (in display coords) for the selected annotation
+  const selectionOverlay = $derived.by(() => {
+    if (!selectedAnn || !canvasEl) return null;
+    const a = selectedAnn;
+    if (a.tool === 'arrow') {
+      // Just expose endpoints; bounding shape isn't drawn for arrows
+      const s = imgToOverlay(a.x, a.y);
+      const e = imgToOverlay(a.x + a.w, a.y + a.h);
+      if (!s || !e) return null;
+      return { kind: 'arrow', start: s, end: e };
+    }
+    if (a.tool === 'text') {
+      const s = imgToOverlay(a.x, a.y);
+      if (!s) return null;
+      const charW = (a.fontSize || 24) * 0.6;
+      const w = (a.text || '').length * charW * s.sx;
+      const h = (a.fontSize || 24) * 1.2 * s.sy;
+      return { kind: 'rect', x: s.x, y: s.y, w, h, ellipse: false };
+    }
+    const x1 = Math.min(a.x, a.x + a.w);
+    const y1 = Math.min(a.y, a.y + a.h);
+    const x2 = Math.max(a.x, a.x + a.w);
+    const y2 = Math.max(a.y, a.y + a.h);
+    const tl = imgToOverlay(x1, y1);
+    const br = imgToOverlay(x2, y2);
+    if (!tl || !br) return null;
+    return { kind: 'rect', x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y, ellipse: a.shape === 'ellipse' };
+  });
+
   // Inline text input position, in display coordinates
   const textBox = $derived.by(() => {
     if (!textPlacement || !canvasEl) return null;
@@ -302,6 +551,18 @@
       </p>
       <button class="cta" onclick={() => fileInputEl.click()}>Choose image</button>
       <p class="hint">Or paste · Or drop</p>
+
+      <footer class="empty-footer">
+        <p class="empty-formats mono">JPEG · PNG · GIF · WebP</p>
+        <p class="empty-promise">No upload, no tracking, no account. Everything happens on your device.</p>
+        <nav class="empty-links" aria-label="About this tool">
+          <a href="#about">about</a>
+          <span aria-hidden="true">·</span>
+          <a href="#features">features</a>
+          <span aria-hidden="true">·</span>
+          <a href="#guides">guides</a>
+        </nav>
+      </footer>
     </div>
   {:else}
     <!-- Editor -->
@@ -381,14 +642,37 @@
           {#if selectionBox}
             <div
               class="selection-preview"
+              class:ellipse={isRedactActive && app.redactShape === 'ellipse'}
               style="left:{selectionBox.x}px; top:{selectionBox.y}px; width:{selectionBox.w}px; height:{selectionBox.h}px;"
             ></div>
+          {/if}
+
+          {#if selectionOverlay && selectionOverlay.kind === 'rect'}
+            <div
+              class="selection-mark"
+              class:ellipse={selectionOverlay.ellipse}
+              style="left:{selectionOverlay.x}px; top:{selectionOverlay.y}px; width:{selectionOverlay.w}px; height:{selectionOverlay.h}px;"
+            ></div>
+            {#if selectedAnn?.tool !== 'text'}
+              {#each [['tl', 0, 0], ['tr', 1, 0], ['br', 1, 1], ['bl', 0, 1]] as [name, hx, hy] (name)}
+                <div
+                  class="resize-handle"
+                  style="left:{selectionOverlay.x + selectionOverlay.w * hx}px; top:{selectionOverlay.y + selectionOverlay.h * hy}px;"
+                ></div>
+              {/each}
+            {/if}
+          {:else if selectionOverlay && selectionOverlay.kind === 'arrow'}
+            <div class="resize-handle" style="left:{selectionOverlay.start.x}px; top:{selectionOverlay.start.y}px;"></div>
+            <div class="resize-handle" style="left:{selectionOverlay.end.x}px; top:{selectionOverlay.end.y}px;"></div>
           {/if}
 
           {#if textPlacement && textBox}
             <input
               bind:this={textInputEl}
               class="text-input"
+              class:bold={app.textBold}
+              class:italic={app.textItalic}
+              class:underline={app.textUnderline}
               type="text"
               bind:value={textPlacement.value}
               onkeydown={onTextKey}
@@ -407,24 +691,82 @@
             <button class="confirm-yes" onclick={clearAll}>Clear</button>
             <button class="confirm-no" onclick={() => (confirmingClear = false)}>Cancel</button>
           </div>
-        {:else if activeTool && (activeTool.settingKey || activeTool.hasColor)}
+        {:else if activeTool && (activeTool.settingKey || activeTool.hasColor || isRedactActive)}
           <div class="settings-strip glass">
+            {#if isRedactActive}
+              <div class="shape-group">
+                <button
+                  class="style-btn"
+                  class:active={getActiveShape() === 'rect'}
+                  onclick={() => setActiveShape('rect')}
+                  aria-label="Rectangle shape"
+                  aria-pressed={getActiveShape() === 'rect'}
+                  title="Rectangle"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75">
+                    <rect x="2.5" y="3.5" width="11" height="9" rx="1" />
+                  </svg>
+                </button>
+                <button
+                  class="style-btn"
+                  class:active={getActiveShape() === 'ellipse'}
+                  onclick={() => setActiveShape('ellipse')}
+                  aria-label="Ellipse shape"
+                  aria-pressed={getActiveShape() === 'ellipse'}
+                  title="Ellipse"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75">
+                    <ellipse cx="8" cy="8" rx="5.5" ry="4.5" />
+                  </svg>
+                </button>
+              </div>
+              {#if activeTool.settingKey}<div class="strip-divider"></div>{/if}
+            {/if}
             {#if activeTool.hasColor}
               <div class="swatches">
                 {#each MARKUP_COLORS as c (c.id)}
                   <button
                     class="swatch"
-                    class:active={app.color === c.value}
+                    class:active={getActiveColor() === c.value}
                     class:swatch-white={c.id === 'white'}
                     style="background:{c.value};"
-                    onclick={() => (app.color = c.value)}
+                    onclick={() => setActiveColor(c.value)}
                     aria-label="Color {c.id}"
-                    aria-pressed={app.color === c.value}
+                    aria-pressed={getActiveColor() === c.value}
                   ></button>
                 {/each}
               </div>
             {/if}
             {#if activeTool.hasColor && activeTool.settingKey}
+              <div class="strip-divider"></div>
+            {/if}
+            {#if displayedToolId === 'text'}
+              <div class="text-style-group">
+                <button
+                  class="style-btn"
+                  class:active={getActiveTextFlag('bold')}
+                  onclick={() => setActiveTextFlag('bold', !getActiveTextFlag('bold'))}
+                  aria-label="Bold"
+                  aria-pressed={getActiveTextFlag('bold')}
+                  title="Bold"
+                ><strong>B</strong></button>
+                <button
+                  class="style-btn"
+                  class:active={getActiveTextFlag('italic')}
+                  onclick={() => setActiveTextFlag('italic', !getActiveTextFlag('italic'))}
+                  aria-label="Italic"
+                  aria-pressed={getActiveTextFlag('italic')}
+                  title="Italic"
+                ><em>I</em></button>
+                <button
+                  class="style-btn"
+                  class:active={getActiveTextFlag('underline')}
+                  onclick={() => setActiveTextFlag('underline', !getActiveTextFlag('underline'))}
+                  aria-label="Underline"
+                  aria-pressed={getActiveTextFlag('underline')}
+                  title="Underline"
+                ><span class="u">U</span></button>
+              </div>
               <div class="strip-divider"></div>
             {/if}
             {#if activeTool.settingKey}
@@ -449,7 +791,7 @@
               <button
                 class="tool-btn"
                 class:active={app.tool === t.id}
-                onclick={() => (app.tool = t.id)}
+                onclick={() => { app.tool = t.id; selectedId = null; }}
                 aria-label={t.label}
                 aria-pressed={app.tool === t.id}
                 title={t.label}
@@ -488,7 +830,7 @@
               <button
                 class="tool-btn"
                 class:active={app.tool === t.id}
-                onclick={() => (app.tool = t.id)}
+                onclick={() => { app.tool = t.id; selectedId = null; }}
                 aria-label={t.label}
                 aria-pressed={app.tool === t.id}
                 title={t.label}
@@ -599,6 +941,46 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-tertiary);
+  }
+  .empty-footer {
+    margin-top: var(--space-10);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-hairline);
+    width: min(440px, 100%);
+  }
+  .empty-formats {
+    font-size: 12px;
+    color: var(--ink-tertiary);
+  }
+  .empty-promise {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+    text-align: center;
+    max-width: 360px;
+  }
+  .empty-links {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 13px;
+  }
+  .empty-links a {
+    color: var(--ink-secondary);
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+  .empty-links a:hover {
+    color: var(--ink-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .empty-links span {
+    color: var(--ink-disabled);
   }
 
   /* ───────── Editor layout ───────── */
@@ -731,6 +1113,9 @@
     touch-action: none;
     user-select: none;
   }
+  @media (min-width: 768px) {
+    .canvas { max-height: calc(100dvh - 256px); }
+  }
   .cursor-cross { cursor: crosshair; }
   .cursor-text { cursor: text; }
 
@@ -740,6 +1125,29 @@
     background: var(--accent-canvas-selection-fill);
     border-radius: 2px;
     pointer-events: none;
+  }
+  .selection-preview.ellipse { border-radius: 50%; }
+  .shape-group { display: flex; gap: 2px; }
+
+  .selection-mark {
+    position: absolute;
+    border: 1.5px dashed var(--accent-canvas-selection);
+    border-radius: 2px;
+    pointer-events: none;
+    box-sizing: border-box;
+  }
+  .selection-mark.ellipse { border-radius: 50%; }
+  .resize-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    margin-left: -6px;
+    margin-top: -6px;
+    background: var(--surface-elevated);
+    border: 1.5px solid var(--accent-canvas-selection);
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   .text-input {
@@ -753,6 +1161,32 @@
     outline: none;
     min-width: 80px;
   }
+  .text-input.bold { font-weight: 700; }
+  .text-input.italic { font-style: italic; }
+  .text-input.underline { text-decoration: underline; text-underline-offset: 3px; }
+
+  .text-style-group {
+    display: flex;
+    gap: 2px;
+  }
+  .style-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    color: var(--ink-primary);
+    font-size: 13px;
+    transition: background 120ms ease, color 120ms ease, transform 80ms ease;
+  }
+  .style-btn:hover:not(.active) { background: var(--border-hairline); }
+  .style-btn:active { transform: scale(0.96); }
+  .style-btn.active {
+    background: var(--ink-primary);
+    color: var(--ink-inverse);
+  }
+  .style-btn .u { text-decoration: underline; text-underline-offset: 2px; }
 
   /* ───────── Toolbar area ───────── */
   .toolbar-area {
