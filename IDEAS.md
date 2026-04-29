@@ -10,6 +10,7 @@ Format suggestion: `- [area] thing — short note`. No strict rules.
 - [site] split the homepage into separate pages (about, features, guides, contact) like redacted.app — for now we just put links below the dropzone; revisit once we know what each page needs to say
 - [tools] freeform / lasso blur and pixelate (point-in-polygon trace) — ellipse handles most cases for now
 - [tools] mobile delete-selected button — no keyboard Delete on phones; selection has no UI to remove one annotation right now (Clear nukes everything, Undo only works for the most recent)
+- [tools] emoji masks — redacted.app covers a face/name/object with an emoji as a fourth redaction option. Probably belongs alongside black box / pixelate / blur. Picking which emoji and scaling it to fit a region is the real work.
 - [tools] propagate last-used setting from selected annotation to defaults when deselected — so changing a selected arrow's color also changes the next-draw default
 - [tools] optional readability outline/shadow toggle for text — removed from defaults in v1.2 because the black halo looked messy, but text on a busy background can be hard to read without it
 - [tools] text bounds use a `length * fontSize * 0.6` approximation; on certain glyph-heavy strings the selection mark and hit-test trail the actual text by a few pixels — switch to canvas.measureText if it ever becomes a real problem

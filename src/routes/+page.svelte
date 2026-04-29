@@ -426,7 +426,16 @@
       }
     }
 
-    // 2. Click on a different existing annotation → select it (and prepare to move on drag)
+    // For the text tool, clicks always place new text — never select an annotation
+    // underneath. Lets you write labels on top of black boxes / blurs.
+    if (app.tool === 'text') {
+      selectedId = null;
+      textPlacement = { x: pos.x, y: pos.y, value: '' };
+      setTimeout(() => textInputEl?.focus(), 0);
+      return;
+    }
+
+    // 2. Click on an existing annotation → select it (and prepare to move on drag)
     const hit = hitTest(pos);
     if (hit) {
       selectedId = hit.id;
@@ -434,13 +443,8 @@
       return;
     }
 
-    // 3. Empty space: deselect, then handle text tool or start drawing
+    // 3. Empty space: deselect, start drawing
     selectedId = null;
-    if (app.tool === 'text') {
-      textPlacement = { x: pos.x, y: pos.y, value: '' };
-      setTimeout(() => textInputEl?.focus(), 0);
-      return;
-    }
     drawing = true;
     dragStart = pos;
     dragCurrent = pos;

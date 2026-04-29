@@ -80,23 +80,36 @@ export function pixelate(ctx, originalImage, x, y, w, h, blockSize, shape = 'rec
 export function blur(ctx, originalImage, x, y, w, h, radius, shape = 'rect') {
   if (w < 2 || h < 2) return;
 
+  // Extract a padded region from the source so the blur kernel always has
+  // real pixel data to sample. Without this padding the gaussian pulls in
+  // transparent pixels at the edges and the result feathers / lightens
+  // around its border. Three sigma covers >99% of a gaussian's mass.
+  const pad = Math.ceil(radius * 3);
+  const sx = Math.max(0, Math.floor(x - pad));
+  const sy = Math.max(0, Math.floor(y - pad));
+  const ex = Math.min(originalImage.width, Math.ceil(x + w + pad));
+  const ey = Math.min(originalImage.height, Math.ceil(y + h + pad));
+  const sw = ex - sx;
+  const sh = ey - sy;
+
   const off1 = document.createElement('canvas');
-  off1.width = w;
-  off1.height = h;
+  off1.width = sw;
+  off1.height = sh;
   const off1Ctx = off1.getContext('2d');
   off1Ctx.filter = `blur(${radius}px)`;
-  off1Ctx.drawImage(originalImage, x, y, w, h, 0, 0, w, h);
+  off1Ctx.drawImage(originalImage, sx, sy, sw, sh, 0, 0, sw, sh);
 
   const off2 = document.createElement('canvas');
-  off2.width = w;
-  off2.height = h;
+  off2.width = sw;
+  off2.height = sh;
   const off2Ctx = off2.getContext('2d');
   off2Ctx.filter = `blur(${radius}px)`;
   off2Ctx.drawImage(off1, 0, 0);
 
   ctx.save();
   clipToShape(ctx, x, y, w, h, shape);
-  ctx.drawImage(off2, x, y);
+  // Draw only the central w×h slice from the padded buffer
+  ctx.drawImage(off2, x - sx, y - sy, w, h, x, y, w, h);
   ctx.restore();
 }
 
