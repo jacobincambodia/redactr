@@ -42,6 +42,10 @@ Format suggestion: `- [area] thing — short note`. No strict rules.
 - cursor reflects intent: crosshair while drawing, grab on selected body, grabbing while moving, nwse-resize / nesw-resize on corner handles
 - size readouts in the settings strip round to integer (was showing 154.94767... after a resize)
 
+### v1.4
+
+- mobile / iOS Safari touch fix: setPointerCapture now wrapped in try/catch — was throwing NotFoundError on touch pointers (and on synthesized events), which silently exited onPointerDown before drawing could start. Result was "tools do nothing on touch." Pointer events keep firing on the canvas without capture, so the drag flow works fine; capture was only nice-to-have for letting the drag continue if the pointer leaves the canvas. releasePointerCapture in onPointerUp also wrapped.
+
 ### v1.3
 
 - text tool always places new text — clicking on an existing annotation no longer selects it, so you can write labels on top of black boxes and blurs

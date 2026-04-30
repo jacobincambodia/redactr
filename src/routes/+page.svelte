@@ -409,7 +409,12 @@
 
   function onPointerDown(e) {
     if (!app.image) return;
-    e.target.setPointerCapture(e.pointerId);
+    // setPointerCapture throws NotFoundError for touch pointers on iOS Safari and
+    // for synthesized events. The capture is a nice-to-have (it lets the drag
+    // continue if the pointer leaves the canvas) but the drag itself works fine
+    // without it. If we don't catch this, the rest of onPointerDown never runs
+    // and the user's drag does nothing visible.
+    try { canvasEl?.setPointerCapture?.(e.pointerId); } catch {}
     const pos = getCanvasPos(e, canvasEl);
 
     // 1. Resize handle on currently-selected annotation
@@ -475,6 +480,7 @@
   }
 
   function onPointerUp(e) {
+    try { canvasEl?.releasePointerCapture?.(e.pointerId); } catch {}
     if (drawing) {
       drawing = false;
       const end = getCanvasPos(e, canvasEl);
