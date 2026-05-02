@@ -123,8 +123,15 @@
       <canvas bind:this={blackBoxCanvas} aria-label="Black box redaction example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Black box</h3>
-      <p>Solid black rectangle or ellipse over the area you draw. The original pixels under the box are overwritten — no recovery possible. This is the safest option and the one selected by default.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18">
+          <rect x="3" y="6" width="10" height="4" rx="0.5" fill="currentColor" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Black box</h3>
+        <p>Solid black rectangle or ellipse over the area you draw. The original pixels under the box are overwritten — no recovery possible. This is the safest option and the one selected by default.</p>
+      </div>
     </div>
   </div>
 
@@ -133,8 +140,23 @@
       <canvas bind:this={pixelateCanvas} aria-label="Pixelate redaction example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Pixelate</h3>
-      <p>Scrambles the area into chunky blocks. The default block size is 30 px, deliberately aggressive. Most tools default to 8–12 px blocks, which has been shown reversible against text and faces in published research. 30 px destroys the structure that recovery attacks rely on.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+          <rect x="2" y="2" width="4" height="4" opacity="0.85" />
+          <rect x="6" y="2" width="4" height="4" opacity="0.55" />
+          <rect x="10" y="2" width="4" height="4" opacity="0.7" />
+          <rect x="2" y="6" width="4" height="4" opacity="0.6" />
+          <rect x="6" y="6" width="4" height="4" opacity="0.95" />
+          <rect x="10" y="6" width="4" height="4" opacity="0.4" />
+          <rect x="2" y="10" width="4" height="4" opacity="0.75" />
+          <rect x="6" y="10" width="4" height="4" opacity="0.5" />
+          <rect x="10" y="10" width="4" height="4" opacity="0.85" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Pixelate</h3>
+        <p>Scrambles the area into chunky blocks. Block size scales with the region you're redacting, not the whole image — at full strength, blocks are large enough relative to the area to defeat the recovery attacks that have worked against finer pixelation in published research. Tools that pixelate at fixed small block sizes have been shown reversible against text and faces.</p>
+      </div>
     </div>
   </div>
 
@@ -143,8 +165,17 @@
       <canvas bind:this={blurCanvas} aria-label="Blur redaction example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Blur</h3>
-      <p>Gaussian blur applied twice in sequence. Single-pass blur has been demonstrated reversible in some adversarial scenarios; double-pass is dramatically harder. Use blur when you want the area to read as obscured rather than hidden.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="2" opacity="1" />
+          <circle cx="8" cy="8" r="4.5" opacity="0.5" />
+          <circle cx="8" cy="8" r="7" opacity="0.2" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Blur</h3>
+        <p>Gaussian blur applied twice in sequence. Strength scales with the region you're redacting, so a small face and a large screenshot both get a blur that's strong relative to what's underneath. Single-pass blur has been demonstrated reversible in some adversarial scenarios; double-pass is dramatically harder. Use blur when you want the area to read as obscured rather than hidden.</p>
+      </div>
     </div>
   </div>
 
@@ -170,8 +201,15 @@
       <canvas bind:this={rectMarkupCanvas} aria-label="Rectangle markup example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Rectangle</h3>
-      <p>Outlined rectangle. Pick from six preset colors, adjust stroke width.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2.5" y="3.5" width="11" height="9" rx="0.5" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Rectangle</h3>
+        <p>Outlined rectangle. Pick from six preset colors, adjust stroke width.</p>
+      </div>
     </div>
   </div>
 
@@ -180,8 +218,16 @@
       <canvas bind:this={arrowMarkupCanvas} aria-label="Arrow markup example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Arrow</h3>
-      <p>Line with an arrowhead at the end. Same color and stroke options. The arrowhead scales with the stroke so thicker arrows feel proportional.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 13L13 3" />
+          <path d="M8 3h5v5" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Arrow</h3>
+        <p>Line with an arrowhead at the end. Same color and stroke options. The arrowhead scales with the stroke so thicker arrows feel proportional.</p>
+      </div>
     </div>
   </div>
 
@@ -190,13 +236,20 @@
       <canvas bind:this={textMarkupCanvas} aria-label="Text markup example"></canvas>
     </div>
     <div class="feature-text">
-      <h3>Text</h3>
-      <p>Click or tap to place an insertion point, then type. Bold, italic, and underline are all available. Drag a corner of the placed text to scale it up or down.</p>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M3 4h10M8 4v9M5.5 13h5" />
+        </svg>
+      </span>
+      <div class="tool-copy">
+        <h3>Text</h3>
+        <p>Click or tap to place an insertion point, then type. <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. Bold, italic, and underline are all available. Drag a corner of placed text to scale it. Double-tap any committed text to edit its content; <kbd>Esc</kbd> restores the original.</p>
+      </div>
     </div>
   </div>
 
   <h2>Edit after placing</h2>
-  <p>Click any annotation to select it. Drag the body to move it, drag a corner to resize it. Change the color, stroke, font size, shape, or text style from the toolbar — without redrawing. Press <code>Delete</code> or <code>Backspace</code> to remove the selected annotation; <code>Esc</code> to deselect.</p>
+  <p>Click any annotation to select. Drag to move; drag a corner to resize. Change the color, stroke, font size, shape, or text style from the toolbar — without redrawing. Press <kbd>Delete</kbd> or <kbd>Backspace</kbd> to remove the selected annotation; <kbd>Esc</kbd> to deselect.</p>
 
   <h2>Privacy</h2>
   <ul>
@@ -204,14 +257,15 @@
     <li>No accounts, no logins, no profiles</li>
     <li>No analytics, no third-party scripts at runtime</li>
     <li>Works offline once the page has loaded</li>
-    <li>Image metadata (EXIF, GPS, color profiles) is stripped on export</li>
+    <li>Image metadata (<kbd>EXIF</kbd>, GPS, color profiles) is stripped on export</li>
   </ul>
 
   <h2>Workflow</h2>
   <ul>
-    <li>Drop a file, paste a clipboard image (<code>⌘/Ctrl + V</code>), or pick from your device</li>
+    <li>Drop a file, paste a clipboard image (<kbd>⌘/Ctrl + V</kbd>), or pick from your device</li>
     <li>Stack multiple redactions and markup on the same image</li>
-    <li>Undo with <code>⌘/Ctrl + Z</code></li>
+    <li>Undo with <kbd>⌘/Ctrl + Z</kbd></li>
+    <li>Tap the Redactr logo in the editor to discard the current image and start fresh</li>
     <li>Light, dark, and system theme</li>
     <li>Built mobile-first; touch targets sized for one-thumb use</li>
   </ul>
@@ -246,11 +300,30 @@
     box-shadow: var(--shadow-canvas);
     background: #ffffff;
   }
+  .feature-text {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+  .feature-text .tool-copy {
+    min-width: 0;
+  }
   .feature-text h3 {
     margin-top: 0 !important;
   }
   .feature-text p {
     margin-bottom: 0 !important;
+  }
+  .tool-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--border-hairline);
+    color: var(--ink-primary);
+    border-radius: var(--radius-md);
   }
 
   .shape-pair {

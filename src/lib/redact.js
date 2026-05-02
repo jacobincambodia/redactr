@@ -31,6 +31,23 @@ export function blackBox(ctx, x, y, w, h, shape = 'rect') {
   }
 }
 
+// Convert a strength setting (1–100, user-facing) into a real pixel value
+// scaled to the redaction region. Mapping is linear: max strength reaches
+// 30% of the region's smaller dimension. The floor stops tiny regions from
+// producing a uselessly weak result. Same shape for blur and pixelate so
+// "strong" reads consistently between the two tools.
+function strengthToPixels(strength, w, h, floor) {
+  const minDim = Math.min(Math.abs(w), Math.abs(h));
+  return Math.max(floor, (strength / 100) * 0.30 * minDim);
+}
+
+export function blurRadiusFor(strength, w, h) {
+  return strengthToPixels(strength, w, h, 8);
+}
+export function pixelateBlockFor(strength, w, h) {
+  return strengthToPixels(strength, w, h, 6);
+}
+
 // Internal: clip context to the annotation shape so the operation is masked.
 function clipToShape(ctx, x, y, w, h, shape) {
   if (shape !== 'ellipse') return;
@@ -46,7 +63,9 @@ function clipToShape(ctx, x, y, w, h, shape) {
  * @param {CanvasRenderingContext2D} ctx — the destination canvas context
  * @param {HTMLImageElement|HTMLCanvasElement} originalImage — the source image
  * @param {number} x, y, w, h — the region to pixelate, in source coordinates
- * @param {number} blockSize — pixel block size, typically 5–80
+ * @param {number} blockSize — pixel block size in source-image pixels.
+ *   Pass `pixelateBlockFor(strength, w, h)` to derive this from the
+ *   user-facing strength setting.
  */
 export function pixelate(ctx, originalImage, x, y, w, h, blockSize, shape = 'rect') {
   if (w < 2 || h < 2) return;
@@ -74,42 +93,58 @@ export function pixelate(ctx, originalImage, x, y, w, h, blockSize, shape = 'rec
 }
 
 /**
- * Blur a region. Applied twice for irreversibility — single-pass gaussian blur has
- * been shown reversible in some adversarial scenarios; double-pass is dramatically harder.
+ * Blur a region.
+ *
+ * Implementation: iterative half-downscale with bilinear smoothing. Each pass
+ * shrinks the pixel data by 50%; the canvas's bilinear sampler averages 4
+ * source pixels into each destination pixel. After N passes, each pixel is
+ * the average of ~4^N source pixels, which is both visually smooth and
+ * irreversible (a radius=20 blur averages over ~1024 source pixels per
+ * output pixel — drastically underdetermined for inversion).
+ *
+ * Why not `ctx.filter = 'blur(...)'`? iOS Safari has unreliable Canvas 2D
+ * `filter` support — it silently no-ops in some configurations, which would
+ * leak the original pixels through both preview and export. The downscale
+ * approach uses only universally-supported drawImage scaling.
  */
 export function blur(ctx, originalImage, x, y, w, h, radius, shape = 'rect') {
   if (w < 2 || h < 2) return;
 
-  // Extract a padded region from the source so the blur kernel always has
-  // real pixel data to sample. Without this padding the gaussian pulls in
-  // transparent pixels at the edges and the result feathers / lightens
-  // around its border. Three sigma covers >99% of a gaussian's mass.
-  const pad = Math.ceil(radius * 3);
-  const sx = Math.max(0, Math.floor(x - pad));
-  const sy = Math.max(0, Math.floor(y - pad));
-  const ex = Math.min(originalImage.width, Math.ceil(x + w + pad));
-  const ey = Math.min(originalImage.height, Math.ceil(y + h + pad));
-  const sw = ex - sx;
-  const sh = ey - sy;
+  // Number of halving passes. log2 maps the user-facing radius slider
+  // (5–50px) onto a sensible blur strength: radius=5 → ~3 passes (8x),
+  // radius=20 → ~5 passes (32x), radius=50 → ~6 passes (64x).
+  const passes = Math.max(1, Math.ceil(Math.log2(radius)));
 
-  const off1 = document.createElement('canvas');
-  off1.width = sw;
-  off1.height = sh;
-  const off1Ctx = off1.getContext('2d');
-  off1Ctx.filter = `blur(${radius}px)`;
-  off1Ctx.drawImage(originalImage, sx, sy, sw, sh, 0, 0, sw, sh);
+  // Pass 0: copy the source region into a same-sized offscreen canvas.
+  let cur = document.createElement('canvas');
+  cur.width = w;
+  cur.height = h;
+  cur.getContext('2d').drawImage(originalImage, x, y, w, h, 0, 0, w, h);
+  let curW = w, curH = h;
 
-  const off2 = document.createElement('canvas');
-  off2.width = sw;
-  off2.height = sh;
-  const off2Ctx = off2.getContext('2d');
-  off2Ctx.filter = `blur(${radius}px)`;
-  off2Ctx.drawImage(off1, 0, 0);
+  // Iteratively halve until we have a tiny canvas.
+  for (let i = 0; i < passes; i++) {
+    const newW = Math.max(2, Math.floor(curW / 2));
+    const newH = Math.max(2, Math.floor(curH / 2));
+    const next = document.createElement('canvas');
+    next.width = newW;
+    next.height = newH;
+    const nctx = next.getContext('2d');
+    nctx.imageSmoothingEnabled = true;
+    nctx.imageSmoothingQuality = 'high';
+    nctx.drawImage(cur, 0, 0, newW, newH);
+    cur = next;
+    curW = newW;
+    curH = newH;
+  }
 
+  // Upscale the tiny result back into the destination region. Bilinear
+  // smoothing on the way up turns the blocky thumbnail into a smooth blur.
   ctx.save();
   clipToShape(ctx, x, y, w, h, shape);
-  // Draw only the central w×h slice from the padded buffer
-  ctx.drawImage(off2, x - sx, y - sy, w, h, x, y, w, h);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cur, 0, 0, curW, curH, x, y, w, h);
   ctx.restore();
 }
 
@@ -197,10 +232,12 @@ export function drawAnnotation(ctx, ann, originalImage, isDarkTheme = false) {
       blackBox(ctx, ann.x, ann.y, ann.w, ann.h, ann.shape);
       break;
     case 'pixelate':
-      pixelate(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.blockSize, ann.shape);
+      pixelate(ctx, originalImage, ann.x, ann.y, ann.w, ann.h,
+        pixelateBlockFor(ann.strength, ann.w, ann.h), ann.shape);
       break;
     case 'blur':
-      blur(ctx, originalImage, ann.x, ann.y, ann.w, ann.h, ann.radius, ann.shape);
+      blur(ctx, originalImage, ann.x, ann.y, ann.w, ann.h,
+        blurRadiusFor(ann.strength, ann.w, ann.h), ann.shape);
       break;
     case 'rect':
       drawRect(ctx, ann.x, ann.y, ann.w, ann.h, ann.color, ann.strokeWidth);

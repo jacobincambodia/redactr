@@ -29,6 +29,8 @@
       <a href="/guides">guides</a>
       <span aria-hidden="true">·</span>
       <a href="/about">about</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://x.com/jacobincambodia" rel="me noopener" target="_blank">@jacobincambodia</a>
     </nav>
   </footer>
 </div>
@@ -161,12 +163,14 @@
     margin-bottom: var(--space-1);
   }
   .content-main :global(strong) { font-weight: 500; }
-  .content-main :global(code) {
+  .content-main :global(code),
+  .content-main :global(kbd) {
     font-family: var(--font-mono);
     font-size: 0.9em;
     background: var(--border-hairline);
     padding: 1px 6px;
     border-radius: 4px;
+    border: 0.5px solid var(--border-emphasis);
   }
   .content-main :global(a) {
     color: var(--ink-primary);

@@ -2,13 +2,13 @@
 
 A browser-based image redaction and markup tool. Black box, pixelate, blur, plus arrows, text, and shapes. Everything runs locally — no upload, no account, no tracking.
 
-**Live:** [redactr.app](https://redactr.app)
+**Live:** [redactr.app][1]
 
 ## What it does
 
 - Black-box, pixelate, or blur any region of an image
 - Add markup: rectangles, arrows, text labels
-- Strong defaults: 30px pixel blocks, double-pass blur, irreversible export
+- Strong defaults: redaction strength scales with the region, double-pass blur, irreversible export
 - Mobile-first: works on phone, tablet, desktop
 - Strips metadata (including GPS) on export
 
@@ -45,7 +45,7 @@ For Netlify or Cloudflare Pages, the same `build/` directory works as the publis
 
 ## Working with Claude Code
 
-This repo is designed to be developed with [Claude Code](https://claude.com/claude-code). The relevant context lives in:
+This repo is designed to be developed with [Claude Code][2]. The relevant context lives in:
 
 - `CLAUDE.md` — instructions for Claude Code (read this first)
 - `SPEC.md` — feature spec, v1 scope, deferred features, algorithms
@@ -59,3 +59,6 @@ Open the project in Claude Code and say:
 ## License
 
 MIT. Use it, fork it, build on it.
+
+[1]:	https://redactr.app
+[2]:	https://claude.com/claude-code

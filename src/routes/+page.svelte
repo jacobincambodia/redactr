@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { app } from '$lib/state.svelte.js';
   import { REDACT_TOOLS, MARKUP_TOOLS, MARKUP_COLORS } from '$lib/tools.js';
   import { drawAnnotation, exportPng, getCanvasPos, normalizeRect } from '$lib/redact.js';
@@ -14,7 +14,20 @@
   let textPlacement = $state(null); // { x, y, value } in canvas coords
   let errorMessage = $state('');
   let confirmingClear = $state(false);
+  let confirmingDiscard = $state(false);
   let isDark = $state(false);
+
+  // Debug overlay — activated with ?debug=1 in the URL. Temporary, for diagnosing
+  // touch behavior on devices we can't directly inspect.
+  let debugMode = $state(false);
+  let debugLog = $state([]);
+  function dbg(label, data) {
+    if (!debugMode) return;
+    const t = new Date();
+    const stamp = `${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}.${t.getMilliseconds().toString().padStart(3, '0')}`;
+    const tail = data === undefined ? '' : ' ' + (typeof data === 'object' ? JSON.stringify(data) : String(data));
+    debugLog = [...untrack(() => debugLog.slice(-19)), `${stamp} ${label}${tail}`];
+  }
 
   // Selection / direct manipulation
   let selectedId = $state(null);
@@ -23,6 +36,13 @@
   // Hover state (for cursor feedback)
   let hoverHandle = $state(null);
   let hoverBody = $state(false);
+
+  // Editing state for committed text annotations. While editing, the original
+  // annotation is removed from app.annotations so the canvas doesn't draw it
+  // underneath the input; we keep a snapshot here so Escape can restore it.
+  let editingAnnotation = $state(null);
+  // Double-tap detection on text annotations (300-350ms is the iOS norm).
+  let lastTextTap = { id: null, time: 0 };
 
   const allTools = [...REDACT_TOOLS, ...MARKUP_TOOLS];
   const selectedAnn = $derived(app.annotations.find((a) => a.id === selectedId) ?? null);
@@ -33,21 +53,46 @@
 
   // Map tool's settingKey to the annotation field name (which differs in one case)
   function annFieldFor(settingKey) {
-    return settingKey === 'radius' ? 'radius'
-      : settingKey === 'blockSize' ? 'blockSize'
+    return settingKey === 'strength' ? 'strength'
       : settingKey === 'strokeWidth' ? 'strokeWidth'
       : settingKey === 'fontSize' ? 'fontSize'
       : null;
+  }
+  // strokeWidth is exposed to the user in display pixels (the slider) but
+  // stored on annotations in image pixels (so export and any rotation/zoom
+  // scales it correctly). Conversion happens at create time and at the
+  // slider <-> annotation boundary.
+  function displayToImagePx(v) {
+    if (!canvasEl) return v;
+    const r = canvasEl.getBoundingClientRect();
+    return r.width > 0 ? v * canvasEl.width / r.width : v;
+  }
+  function imageToDisplayPx(v) {
+    if (!canvasEl) return v;
+    const r = canvasEl.getBoundingClientRect();
+    return canvasEl.width > 0 ? v * r.width / canvasEl.width : v;
+  }
+  // Map a 1–100 strength reading to a coarse label for the settings strip.
+  function strengthLabel(s) {
+    if (s <= 33) return 'low';
+    if (s <= 66) return 'medium';
+    return 'strong';
   }
   function getSettingValue() {
     if (!activeTool?.settingKey) return null;
     const k = activeTool.settingKey;
     if (selectedAnn) {
       const f = annFieldFor(k);
-      return f ? selectedAnn[f] : null;
+      if (!f) return null;
+      // strokeWidth on annotations is image-pixels; the slider speaks display
+      // pixels, so convert.
+      if (f === 'strokeWidth') return Math.round(imageToDisplayPx(selectedAnn[f]));
+      return selectedAnn[f];
     }
-    if (k === 'blockSize') return app.blockSize;
-    if (k === 'radius') return app.blurRadius;
+    if (k === 'strength') {
+      if (app.tool === 'blur') return app.blurStrength;
+      if (app.tool === 'pixelate') return app.pixelateStrength;
+    }
     if (k === 'strokeWidth') return app.strokeWidth;
     if (k === 'fontSize') return app.fontSize;
     return null;
@@ -56,11 +101,16 @@
     const k = activeTool.settingKey;
     if (selectedAnn) {
       const f = annFieldFor(k);
-      if (f) app.updateAnnotation(selectedAnn.id, { [f]: v });
+      if (!f) return;
+      // Slider gives us display pixels; the annotation wants image pixels.
+      const value = f === 'strokeWidth' ? displayToImagePx(v) : v;
+      app.updateAnnotation(selectedAnn.id, { [f]: value });
       return;
     }
-    if (k === 'blockSize') app.blockSize = v;
-    else if (k === 'radius') app.blurRadius = v;
+    if (k === 'strength') {
+      if (app.tool === 'blur') app.blurStrength = v;
+      else if (app.tool === 'pixelate') app.pixelateStrength = v;
+    }
     else if (k === 'strokeWidth') app.strokeWidth = v;
     else if (k === 'fontSize') app.fontSize = v;
   }
@@ -91,6 +141,24 @@
 
   onMount(() => {
     evalDark();
+    if (new URLSearchParams(window.location.search).get('debug') === '1') {
+      debugMode = true;
+      dbg('debug-on', { ua: navigator.userAgent.slice(0, 80) });
+
+      // Document-level loggers to find out where touches are landing
+      const docPdn = (e) => {
+        const tag = e.target?.tagName;
+        const cls = (e.target?.className && typeof e.target.className === 'string') ? e.target.className.split(' ')[0] : '';
+        dbg('doc-pdn', { t: e.pointerType, tgt: tag + (cls ? '.' + cls : '') });
+      };
+      const docTouch = (e) => {
+        const tag = e.target?.tagName;
+        const cls = (e.target?.className && typeof e.target.className === 'string') ? e.target.className.split(' ')[0] : '';
+        dbg('doc-touchstart', { tgt: tag + (cls ? '.' + cls : ''), n: e.touches.length });
+      };
+      document.addEventListener('pointerdown', docPdn, true);
+      document.addEventListener('touchstart', docTouch, true);
+    }
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     mq.addEventListener('change', evalDark);
 
@@ -157,12 +225,12 @@
         x: dragStart.x, y: dragStart.y,
         w: dragCurrent.x - dragStart.x, h: dragCurrent.y - dragStart.y,
         color: app.color,
-        strokeWidth: app.strokeWidth,
+        strokeWidth: displayToImagePx(app.strokeWidth),
       };
     }
     if (t === 'rect') {
       const r = normalizeRect(dragStart.x, dragStart.y, dragCurrent.x - dragStart.x, dragCurrent.y - dragStart.y);
-      return { tool: 'rect', ...r, color: app.color, strokeWidth: app.strokeWidth };
+      return { tool: 'rect', ...r, color: app.color, strokeWidth: displayToImagePx(app.strokeWidth) };
     }
     // blackbox: only live-preview rect shape (ellipse falls back to blue ring)
     if (t === 'blackbox' && app.redactShape !== 'ellipse') {
@@ -185,6 +253,7 @@
     }
     const preview = previewAnnotation();
     if (preview) drawAnnotation(ctx, preview, app.image.element, isDark);
+    dbg('render', { anns: app.annotations.length, drawing, preview: !!preview });
   });
 
   function showError(msg) {
@@ -409,13 +478,18 @@
 
   function onPointerDown(e) {
     if (!app.image) return;
+    dbg('pdn', { t: e.pointerType, id: e.pointerId, cx: Math.round(e.clientX), cy: Math.round(e.clientY) });
     // setPointerCapture throws NotFoundError for touch pointers on iOS Safari and
     // for synthesized events. The capture is a nice-to-have (it lets the drag
     // continue if the pointer leaves the canvas) but the drag itself works fine
     // without it. If we don't catch this, the rest of onPointerDown never runs
     // and the user's drag does nothing visible.
-    try { canvasEl?.setPointerCapture?.(e.pointerId); } catch {}
+    let captured = false;
+    try { canvasEl?.setPointerCapture?.(e.pointerId); captured = true; }
+    catch (err) { dbg('cap-err', String(err).slice(0, 60)); }
+    dbg('cap', captured);
     const pos = getCanvasPos(e, canvasEl);
+    dbg('pos', { x: Math.round(pos.x), y: Math.round(pos.y), tool: app.tool });
 
     // 1. Resize handle on currently-selected annotation
     if (selectedAnn) {
@@ -424,19 +498,47 @@
         interaction = { kind: 'resizing', id: selectedAnn.id, handle: h, original: { ...selectedAnn } };
         return;
       }
-      // Click on body of selected → start move (don't reselect)
+      // Click on body of selected → start move (don't reselect).
+      // Special case: a quick second tap on a selected text annotation
+      // re-enters edit mode (feature lives in the helper).
       if (hitsAnnotation(selectedAnn, pos)) {
+        if (tryDoubleTapEdit(selectedAnn)) {
+          e.preventDefault();
+          return;
+        }
         interaction = { kind: 'moving', id: selectedAnn.id, offset: { x: pos.x - selectedAnn.x, y: pos.y - selectedAnn.y } };
         return;
       }
     }
 
-    // For the text tool, clicks always place new text — never select an annotation
-    // underneath. Lets you write labels on top of black boxes / blurs.
+    // Text tool. Tapping an existing text annotation selects it; double-tapping
+    // re-enters edit mode on it. Tapping anywhere else places new text — even
+    // on top of non-text annotations, so labels-on-blackboxes still work.
     if (app.tool === 'text') {
-      selectedId = null;
-      textPlacement = { x: pos.x, y: pos.y, value: '' };
-      setTimeout(() => textInputEl?.focus(), 0);
+      // Compute hit BEFORE committing the in-flight placement; otherwise the
+      // newly-committed annotation could appear in the hit list.
+      const hit = hitTest(pos);
+
+      // If a placement is in flight (user typed, then clicked elsewhere),
+      // commit it now. We can't rely on the input's onblur — the browser fires
+      // blur AFTER pointerdown, so by the time commitText runs we've already
+      // replaced textPlacement and the typed text is lost. preventDefault
+      // stops the focus-shift that would otherwise fire that late blur.
+      if (textPlacement) {
+        e.preventDefault();
+        commitText();
+      }
+
+      if (hit?.tool === 'text') {
+        if (tryDoubleTapEdit(hit)) return;
+        // Single tap → select + start move (existing behavior).
+        selectedId = hit.id;
+        interaction = { kind: 'moving', id: hit.id, offset: { x: pos.x - hit.x, y: pos.y - hit.y } };
+      } else {
+        selectedId = null;
+        textPlacement = { x: pos.x, y: pos.y, value: '' };
+        setTimeout(() => textInputEl?.focus(), 0);
+      }
       return;
     }
 
@@ -453,12 +555,15 @@
     drawing = true;
     dragStart = pos;
     dragCurrent = pos;
+    dbg('draw-start', { x: Math.round(pos.x), y: Math.round(pos.y) });
   }
 
   function onPointerMove(e) {
     const pos = getCanvasPos(e, canvasEl);
     if (drawing) {
       dragCurrent = pos;
+      // sample a fraction of moves so we don't flood the overlay
+      if (Math.random() < 0.15) dbg('pmv', { x: Math.round(pos.x), y: Math.round(pos.y) });
       return;
     }
     if (!interaction) {
@@ -480,16 +585,19 @@
   }
 
   function onPointerUp(e) {
+    dbg('pup', { t: e.pointerType, drawing, hasInter: !!interaction });
     try { canvasEl?.releasePointerCapture?.(e.pointerId); } catch {}
     if (drawing) {
       drawing = false;
       const end = getCanvasPos(e, canvasEl);
       const rawW = end.x - dragStart.x;
       const rawH = end.y - dragStart.y;
+      dbg('pup-end', { x: Math.round(end.x), y: Math.round(end.y), w: Math.round(rawW), h: Math.round(rawH) });
 
       if (Math.abs(rawW) < 4 && Math.abs(rawH) < 4) {
         dragStart = null;
         dragCurrent = null;
+        dbg('misclick');
         return;
       }
 
@@ -502,26 +610,57 @@
           w: rawW,
           h: rawH,
           color: app.color,
-          strokeWidth: app.strokeWidth,
+          strokeWidth: displayToImagePx(app.strokeWidth),
         };
       } else {
         const r = normalizeRect(dragStart.x, dragStart.y, rawW, rawH);
         const base = { tool: app.tool, ...r };
-        if (app.tool === 'pixelate') ann = { ...base, blockSize: app.blockSize, shape: app.redactShape };
-        else if (app.tool === 'blur') ann = { ...base, radius: app.blurRadius, shape: app.redactShape };
+        if (app.tool === 'pixelate') ann = { ...base, strength: app.pixelateStrength, shape: app.redactShape };
+        else if (app.tool === 'blur') ann = { ...base, strength: app.blurStrength, shape: app.redactShape };
         else if (app.tool === 'blackbox') ann = { ...base, shape: app.redactShape };
-        else if (app.tool === 'rect') ann = { ...base, color: app.color, strokeWidth: app.strokeWidth };
+        else if (app.tool === 'rect') ann = { ...base, color: app.color, strokeWidth: displayToImagePx(app.strokeWidth) };
       }
 
       if (ann) {
         const id = app.addAnnotation(ann);
         selectedId = id;
+        dbg('ann-add', { tool: ann.tool, x: Math.round(ann.x), y: Math.round(ann.y), w: Math.round(ann.w || 0), h: Math.round(ann.h || 0), n: app.annotations.length });
+      } else {
+        dbg('no-ann', { tool: app.tool });
       }
       dragStart = null;
       dragCurrent = null;
       return;
     }
     interaction = null;
+  }
+
+  // If `ann` is a text annotation and this is the second tap on it within
+  // 350ms, enter edit mode and return true. Otherwise record the tap and
+  // return false. Tool-restricted to 'text' so a stray double-tap on a text
+  // annotation while drawing arrows doesn't unexpectedly enter edit mode.
+  function tryDoubleTapEdit(ann) {
+    if (app.tool !== 'text' || ann?.tool !== 'text') return false;
+    const now = Date.now();
+    const isDouble = lastTextTap.id === ann.id && now - lastTextTap.time < 350;
+    if (!isDouble) {
+      lastTextTap = { id: ann.id, time: now };
+      return false;
+    }
+    lastTextTap = { id: null, time: 0 };
+    editingAnnotation = { ...ann };
+    app.color = ann.color;
+    app.fontSize = ann.fontSize;
+    app.textBold = ann.bold;
+    app.textItalic = ann.italic;
+    app.textUnderline = ann.underline;
+    app.deleteAnnotation(ann.id);
+    selectedId = null;
+    textPlacement = { x: ann.x, y: ann.y, value: ann.text };
+    // Select all so the user can immediately type to replace, or arrow-key
+    // to position the caret for a small edit.
+    setTimeout(() => { textInputEl?.focus(); textInputEl?.select(); }, 0);
+    return true;
   }
 
   function commitText() {
@@ -543,6 +682,9 @@
       });
       selectedId = id;
     }
+    // Whether or not we added a new annotation, the original (if we were
+    // editing one) was already deleted on edit-entry — drop the snapshot.
+    editingAnnotation = null;
     textPlacement = null;
   }
   function onTextKey(e) {
@@ -551,6 +693,13 @@
       commitText();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      // If we were editing a committed annotation, restore it. The id will
+      // change but the position, text, and styles are preserved.
+      if (editingAnnotation) {
+        const id = app.addAnnotation(editingAnnotation);
+        selectedId = id;
+        editingAnnotation = null;
+      }
       textPlacement = null;
     }
   }
@@ -571,6 +720,18 @@
   function clearAll() {
     app.clearAll();
     confirmingClear = false;
+  }
+
+  function discardImage() {
+    // setImage(null) clears the annotations too via state.svelte.js, which
+    // sends us back to the empty-state render. Any in-flight text placement
+    // and selection state are reset because their parent block unmounts.
+    app.setImage(null);
+    selectedId = null;
+    textPlacement = null;
+    editingAnnotation = null;
+    interaction = null;
+    confirmingDiscard = false;
   }
 
   // Selection rectangle preview, in display coordinates relative to .canvas-frame
@@ -676,11 +837,13 @@
         <p class="empty-formats mono">JPEG · PNG · GIF · WebP</p>
         <p class="empty-promise">No upload, no tracking, no account. Everything happens on your device.</p>
         <nav class="empty-links" aria-label="About this tool">
-          <a href="/about">about</a>
-          <span aria-hidden="true">·</span>
           <a href="/features">features</a>
           <span aria-hidden="true">·</span>
           <a href="/guides">guides</a>
+          <span aria-hidden="true">·</span>
+          <a href="/about">about</a>
+          <span aria-hidden="true">·</span>
+          <a href="https://x.com/jacobincambodia" rel="me noopener" target="_blank">@jacobincambodia</a>
         </nav>
       </footer>
     </div>
@@ -688,11 +851,23 @@
     <!-- Editor -->
     <div class="editor">
       <header class="topbar">
-        <button class="file-label glass" onclick={() => fileInputEl.click()} title="Choose another image">
-          <span class="file-icon" aria-hidden="true"></span>
-          <span class="file-name">{app.image.name}</span>
-          <span class="file-dims mono">{app.image.width}×{app.image.height}</span>
-        </button>
+        <div class="topbar-left">
+          <button
+            class="logo-btn glass"
+            onclick={() => (confirmingDiscard = true)}
+            aria-label="Discard image and start over"
+            title="Discard image"
+          >
+            <span class="logo-mark" aria-hidden="true">
+              <span class="logo-mark-bar"></span>
+            </span>
+          </button>
+          <button class="file-label glass" onclick={() => fileInputEl.click()} title="Choose another image">
+            <span class="file-icon" aria-hidden="true"></span>
+            <span class="file-name">{app.image.name}</span>
+            <span class="file-dims mono">{app.image.width}×{app.image.height}</span>
+          </button>
+        </div>
 
         <div class="actions">
           <button
@@ -753,6 +928,9 @@
             onpointerup={onPointerUp}
             onpointercancel={onPointerUp}
             onpointerleave={() => { hoverHandle = null; hoverBody = false; }}
+            ontouchstart={(e) => dbg('cvs-touchstart', { n: e.touches.length })}
+            ontouchmove={(e) => { if (Math.random() < 0.15) dbg('cvs-touchmove', { n: e.touches.length }); }}
+            ontouchend={(e) => dbg('cvs-touchend', { n: e.touches.length })}
             class="canvas"
             style:cursor={canvasCursor}
             role="img"
@@ -803,7 +981,13 @@
       </div>
 
       <div class="toolbar-area">
-        {#if confirmingClear}
+        {#if confirmingDiscard}
+          <div class="confirm-strip glass" role="alertdialog">
+            <span>Discard this image and all annotations?</span>
+            <button class="confirm-yes" onclick={discardImage}>Discard</button>
+            <button class="confirm-no" onclick={() => (confirmingDiscard = false)}>Cancel</button>
+          </div>
+        {:else if confirmingClear}
           <div class="confirm-strip glass" role="alertdialog">
             <span>Clear all annotations?</span>
             <button class="confirm-yes" onclick={clearAll}>Clear</button>
@@ -896,9 +1080,15 @@
                 max={activeTool.settingMax}
                 value={getSettingValue()}
                 oninput={(e) => setSettingValue(parseInt(e.currentTarget.value))}
-                aria-label="{activeTool.metaLabel} {getSettingValue()} {activeTool.settingUnit}"
+                aria-label={activeTool.settingKey === 'strength'
+                  ? `${activeTool.metaLabel} strength ${strengthLabel(getSettingValue())}`
+                  : `${activeTool.metaLabel} ${getSettingValue()} ${activeTool.settingUnit}`}
               />
-              <span class="strip-value mono">{Math.round(getSettingValue())} {activeTool.settingUnit}</span>
+              {#if activeTool.settingKey === 'strength'}
+                <span class="strip-value">{strengthLabel(getSettingValue())}</span>
+              {:else}
+                <span class="strip-value mono">{Math.round(getSettingValue())} {activeTool.settingUnit}</span>
+              {/if}
             {/if}
           </div>
         {/if}
@@ -977,6 +1167,15 @@
 
   {#if errorMessage}
     <div class="error-toast" role="status">{errorMessage}</div>
+  {/if}
+
+  {#if debugMode}
+    <div class="debug-overlay">
+      <div class="debug-head">debug · {debugLog.length} lines</div>
+      {#each debugLog as line, i (i)}
+        <div class="debug-line">{line}</div>
+      {/each}
+    </div>
   {/if}
 
   <input
@@ -1119,12 +1318,48 @@
     align-items: flex-start;
     gap: var(--space-3);
     z-index: 10;
-    pointer-events: none;
+    /* Was pointer-events: none with auto on children — iOS Safari can drop
+       touch events with that pattern. Removed to debug touch on real device. */
   }
-  .topbar > * { pointer-events: auto; }
 
   @media (min-width: 768px) {
     .topbar { top: var(--space-5); left: var(--space-5); right: var(--space-5); }
+  }
+
+  .topbar-left {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .logo-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+    box-shadow: var(--shadow-toolbar);
+    transition: transform 80ms ease;
+  }
+  .logo-btn:active { transform: scale(0.94); }
+  .logo-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: var(--ink-primary);
+    border-radius: 4px;
+  }
+  .logo-mark-bar {
+    display: block;
+    width: 9px;
+    height: 3px;
+    background: var(--ink-inverse);
+    border-radius: 1px;
   }
 
   .file-label {
@@ -1314,8 +1549,8 @@
   .toolbar-area {
     position: absolute;
     bottom: var(--space-4);
-    left: 0;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1323,9 +1558,11 @@
     padding: 0 var(--space-4);
     padding-bottom: env(safe-area-inset-bottom);
     z-index: 10;
-    pointer-events: none;
+    /* Was full-width with pointer-events: none + auto on children — iOS Safari
+       can drop touch events with that pattern. Now shrink-to-content so the
+       footprint only covers the toolbar pill itself; the canvas underneath
+       is unobstructed. */
   }
-  .toolbar-area > * { pointer-events: auto; }
   @media (min-width: 768px) {
     .toolbar-area { bottom: var(--space-5); }
   }
@@ -1439,6 +1676,34 @@
     max-width: 90vw;
   }
 
+  .debug-overlay {
+    position: fixed;
+    top: env(safe-area-inset-top, 0);
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.85);
+    color: #00ff66;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+    padding: 6px 10px;
+    z-index: 999;
+    max-height: 40vh;
+    overflow-y: auto;
+    pointer-events: none;
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+  .debug-head {
+    color: #ffaa00;
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .debug-line {
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* Tighten action labels on narrow phones */
   @media (max-width: 480px) {
     .action-pill span { display: none; }
@@ -1447,5 +1712,16 @@
     .file-label { max-width: 45vw; padding: 8px 10px; }
     .actions { gap: 6px; }
     .export-btn { padding: 0 10px; font-size: 13px; }
+
+    /* Settings strip wraps when its content overflows the viewport. Dividers
+       only make sense in a single row, so hide them when wrapping is in play. */
+    .settings-strip,
+    .confirm-strip {
+      max-width: calc(100vw - 32px);
+      flex-wrap: wrap;
+      justify-content: center;
+      row-gap: 8px;
+    }
+    .settings-strip > .strip-divider { display: none; }
   }
 </style>

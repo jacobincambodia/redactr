@@ -4,6 +4,14 @@
 
 import { DEFAULT_TOOL, DEFAULT_COLOR } from './tools.js';
 
+// crypto.randomUUID requires a secure context. On iOS Safari, that means HTTPS
+// or localhost — LAN HTTP (e.g. http://192.168.x.x for phone testing) is not
+// secure, and crypto.randomUUID is undefined there. IDs only live in this tab
+// and never leave the browser, so a non-cryptographic fallback is fine.
+function makeId() {
+  return crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 class AppState {
   // Image
   image = $state(null); // { src, name, width, height, element }
@@ -11,9 +19,14 @@ class AppState {
   // Active tool & settings
   tool = $state(DEFAULT_TOOL);
   color = $state(DEFAULT_COLOR);
-  blockSize = $state(30);
-  blurRadius = $state(20);
-  strokeWidth = $state(8);
+  // Strength on a 1–100 scale, mapped to actual pixel block / radius at draw
+  // time so "max" stays subjectively-strong on any image size. See
+  // strengthToPixels in redact.js for the mapping.
+  pixelateStrength = $state(50);
+  blurStrength = $state(50);
+  // strokeWidth is in display pixels — the slider speaks display, the
+  // annotation stores image pixels via displayToImagePx at create time.
+  strokeWidth = $state(6);
   fontSize = $state(48);
   textBold = $state(false);
   textItalic = $state(false);
@@ -33,7 +46,7 @@ class AppState {
   }
 
   addAnnotation(ann) {
-    const id = crypto.randomUUID();
+    const id = makeId();
     this.annotations = [...this.annotations, { ...ann, id }];
     return id;
   }

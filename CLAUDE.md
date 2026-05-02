@@ -94,6 +94,15 @@ The full visual spec is in `DESIGN.md`. Brief version:
 - **Undo** is single-level — undo last action only. v2 adds full history.
 - **Export** is a click on a clear export button. Filename is `<original>-redacted.png`.
 - **Metadata stripping** happens automatically because we re-encode through canvas. Verify in code review that we never `URL.createObjectURL` the original file for the export path.
+Find this line:
+
+> Drawing uses pointer events (pointerdown, pointermove, pointerup), not separate mouse and touch handlers. `touch-action: none` on the canvas to prevent scroll/zoom while drawing.
+
+Add this immediately after it:
+
+> Touch must work on every interactive element in the editor view, not just the canvas. If touch is dead anywhere in the editor (toolbar buttons, action pills, etc.), the cause is almost certainly a wrapper element above them — investigate the DOM tree from `<main>` downward before touching individual components.
+
+---
 
 ## What not to do
 
@@ -105,6 +114,19 @@ The full visual spec is in `DESIGN.md`. Brief version:
 - Don't add cookies or localStorage tracking of anything user-identifying. Theme preference in localStorage is fine.
 - Don't introduce a build step that requires Node 20+ or anything exotic. Stay on whatever the current LTS is.
 - Don't ship code that loads remote fonts. System fonts only.
+
+## Debugging discipline
+
+When something is broken, find the cause before proposing a fix. Specifically:
+
+- Read the relevant code first. Don't propose fixes from memory of similar bugs in other projects.
+- If the cause isn't obvious from reading, the next step is observation (logs, inspector, real device testing) — not a speculative fix.
+- State your hypothesis explicitly before changing code. "I think X is causing Y because Z. Confirming by [doing W]."
+- Don't add layers of instrumentation if the existing instrumentation hasn't been read carefully. One round of logging well-interpreted beats three rounds of more logging.
+- For mobile bugs, iOS Safari remote inspection (USB to Mac, Safari → Develop menu) is the right tool. Use it before adding on-screen debug overlays.
+- If a fix doesn't work, revert it before trying the next thing. Don't stack experimental changes — it makes the next round harder to reason about.
+
+The user's time is more valuable than yours. A 5-minute pause to think beats an hour of round-tripping speculative fixes.
 
 ## When in doubt
 

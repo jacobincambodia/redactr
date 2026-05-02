@@ -11,23 +11,24 @@ export const REDACT_TOOLS = [
   {
     id: 'pixelate',
     label: 'Pixel',
-    metaLabel: 'BLOCK',
-    settingKey: 'blockSize',
-    settingMin: 5,
-    settingMax: 80,
-    settingDefault: 30,
-    settingUnit: 'px',
+    metaLabel: 'PIXEL',
+    // Strength on a 1–100 scale. The actual block size is computed as a
+    // fraction of the region's smaller dimension (with a pixel floor) so
+    // "max" reads the same on tiny crops and full screenshots.
+    settingKey: 'strength',
+    settingMin: 1,
+    settingMax: 100,
+    settingDefault: 50,
     hasColor: false,
   },
   {
     id: 'blur',
     label: 'Blur',
     metaLabel: 'BLUR',
-    settingKey: 'radius',
-    settingMin: 5,
-    settingMax: 50,
-    settingDefault: 20,
-    settingUnit: 'px',
+    settingKey: 'strength',
+    settingMin: 1,
+    settingMax: 100,
+    settingDefault: 50,
     hasColor: false,
   },
 ];
@@ -37,10 +38,14 @@ export const MARKUP_TOOLS = [
     id: 'rect',
     label: 'Rect',
     metaLabel: 'STROKE',
+    // strokeWidth is in display pixels at the slider/UI layer; the value
+    // stored on the annotation is converted to image pixels at create time
+    // so a 6-display-px stroke stays visible on tiny images and 4000-px
+    // phone screenshots alike. See displayToImagePx in +page.svelte.
     settingKey: 'strokeWidth',
     settingMin: 1,
     settingMax: 12,
-    settingDefault: 4,
+    settingDefault: 6,
     settingUnit: 'px',
     hasColor: true,
   },
